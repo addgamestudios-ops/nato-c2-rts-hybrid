@@ -387,7 +387,7 @@ namespace NATO.C2.UI
         private LatticeSettingsPanel _settingsCache;
         private void ToggleSettings()
         {
-            _settingsCache ??= FindFirstObjectByType<LatticeSettingsPanel>();
+            _settingsCache ??= FindAnyObjectByType<LatticeSettingsPanel>();
             if (_settingsCache == null) return;
             _settingsCache.Toggle();
         }
@@ -397,7 +397,7 @@ namespace NATO.C2.UI
         private bool _tracksOpen = true;
         private void ToggleTracksPanel()
         {
-            _tracksPanelCache ??= FindFirstObjectByType<LatticeTracksPanel>();
+            _tracksPanelCache ??= FindAnyObjectByType<LatticeTracksPanel>();
             if (_tracksPanelCache == null) return;
             _tracksOpen = !_tracksOpen;
             // Toggle child visibility (the container the panel built lives at
@@ -411,7 +411,7 @@ namespace NATO.C2.UI
         // ---------- Layers basemap cycler ---------------------------
         private void CycleBasemap()
         {
-            var loader = FindFirstObjectByType<NATO.C2.Net.OsmTileLoader>();
+            var loader = FindAnyObjectByType<NATO.C2.Net.OsmTileLoader>();
             if (loader == null) return;
             var styles = (NATO.C2.Net.OsmTileLoader.BasemapStyle[])
                 System.Enum.GetValues(typeof(NATO.C2.Net.OsmTileLoader.BasemapStyle));

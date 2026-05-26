@@ -1,0 +1,177 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": "-- Grafana --",
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "NATO C2 RTS Hybrid — Link 16 federation health. Imports from the Prometheus datasource that scrapes the OTel Collector. Panels mirror the in-game Link16FederationDashboard so Grafana = production view, in-game widget = operator view.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    {
+      "icon": "doc",
+      "tags": [],
+      "title": "Federation playbook",
+      "tooltip": "Operator runbook for the symptoms shown below.",
+      "type": "link",
+      "url": "https://github.com/addgamestudios-ops/nato-c2-rts-hybrid/blob/main/docs/federation-playbook.md"
+    }
+  ],
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "ARQ sent / acked / failed",
+      "gridPos": { "h": 4, "w": 12, "x": 0, "y": 0 },
+      "datasource": "${datasource}",
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "" }, "colorMode": "value" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] },
+          "unit": "short"
+        }
+      },
+      "targets": [
+        { "refId": "A", "expr": "nato_c2_l16_arq_sent",   "legendFormat": "sent" },
+        { "refId": "B", "expr": "nato_c2_l16_arq_acked",  "legendFormat": "acked" },
+        { "refId": "C", "expr": "nato_c2_l16_arq_failed", "legendFormat": "failed" }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Retried / Outstanding",
+      "gridPos": { "h": 4, "w": 12, "x": 12, "y": 0 },
+      "datasource": "${datasource}",
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "" }, "colorMode": "value" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green",  "value": null },
+            { "color": "orange", "value": 50 },
+            { "color": "red",    "value": 200 }
+          ]},
+          "unit": "short"
+        }
+      },
+      "targets": [
+        { "refId": "A", "expr": "nato_c2_l16_arq_retried",     "legendFormat": "retried" },
+        { "refId": "B", "expr": "nato_c2_l16_arq_outstanding", "legendFormat": "outstanding" }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "PPLI envelope rate per mode",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "datasource": "${datasource}",
+      "fieldConfig": { "defaults": { "unit": "ops" } },
+      "targets": [
+        { "refId": "A", "expr": "nato_c2_l16_envelopes_stddp_per_sec", "legendFormat": "STD-DP" },
+        { "refId": "B", "expr": "nato_c2_l16_envelopes_p2dp_per_sec",  "legendFormat": "P2DP" },
+        { "refId": "C", "expr": "nato_c2_l16_envelopes_p4sp_per_sec",  "legendFormat": "P4SP" }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "ARQ retries (rate)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "datasource": "${datasource}",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 20 }
+        }
+      },
+      "targets": [
+        { "refId": "A", "expr": "rate(nato_c2_l16_arq_retried[1m])", "legendFormat": "retries/sec" },
+        { "refId": "B", "expr": "rate(nato_c2_l16_arq_failed[1m])",  "legendFormat": "fails/sec" }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "table",
+      "title": "Per-peer state",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 12 },
+      "datasource": "${datasource}",
+      "targets": [
+        { "refId": "A", "expr": "nato_c2_l16_peer_rx_count",  "legendFormat": "{{peer}}", "format": "table", "instant": true },
+        { "refId": "B", "expr": "nato_c2_l16_peer_srej_rx",   "legendFormat": "{{peer}}", "format": "table", "instant": true },
+        { "refId": "C", "expr": "nato_c2_l16_peer_gaps",      "legendFormat": "{{peer}}", "format": "table", "instant": true }
+      ],
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": { "byField": "peer", "mode": "outer" }
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Advisor decisions",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "datasource": "${datasource}",
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "targets": [
+        { "refId": "A", "expr": "rate(nato_c2_l16_advisor_demotions[5m])",  "legendFormat": "demotions/sec" },
+        { "refId": "B", "expr": "rate(nato_c2_l16_advisor_promotions[5m])", "legendFormat": "promotions/sec" }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Federation health",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+      "datasource": "${datasource}",
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "red",    "value": null },
+            { "color": "orange", "value": 0.5 },
+            { "color": "green",  "value": 0.9 }
+          ]},
+          "unit": "percentunit"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "nato_c2_l16_arq_acked / clamp_min(nato_c2_l16_arq_sent, 1)",
+          "legendFormat": "ACK ratio"
+        }
+      ]
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 38,
+  "tags": ["nato-c2", "link16", "federation"],
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": { "selected": false, "text": "Prometheus", "value": "Prometheus" }
+      }
+    ]
+  },
+  "time": { "from": "now-15m", "to": "now" },
+  "timepicker": {},
+  "timezone": "",
+  "title": "NATO C2 — Link 16 Federation",
+  "version": 1,
+  "weekStart": ""
+}

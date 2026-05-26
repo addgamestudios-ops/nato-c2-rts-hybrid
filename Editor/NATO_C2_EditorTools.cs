@@ -49,9 +49,9 @@ namespace NATO.C2.EditorTools
         public static void Validate()
         {
             int errors = 0;
-            if (Object.FindFirstObjectByType<NATO_C2_Manager>() == null)
+            if (Object.FindAnyObjectByType<NATO_C2_Manager>() == null)
             { Debug.LogWarning("[NATO C2] No NATO_C2_Manager in scene."); errors++; }
-            if (Object.FindFirstObjectByType<UI.TacticalHUD>() == null)
+            if (Object.FindAnyObjectByType<UI.TacticalHUD>() == null)
             { Debug.LogWarning("[NATO C2] No TacticalHUD in scene."); errors++; }
             if (errors == 0) Debug.Log("[NATO C2] Package validated — all systems present.");
         }
@@ -66,7 +66,7 @@ namespace NATO.C2.EditorTools
         [MenuItem("NATO C2/CoT Test/Send Call-For-Fire at origin", priority = 300)]
         public static void TestCallForFire()
         {
-            var tak = Object.FindFirstObjectByType<Net.TakServerCotAdapter>();
+            var tak = Object.FindAnyObjectByType<Net.TakServerCotAdapter>();
             if (tak == null) { Debug.LogWarning("[NATO C2] No TAK adapter in scene."); return; }
             tak.PublishCallForFire(Vector3.zero, requester: "TEST-OPS",
                                    remarks: "Editor-menu test fire mission");
@@ -76,7 +76,7 @@ namespace NATO.C2.EditorTools
         [MenuItem("NATO C2/CoT Test/Send MEDEVAC at origin", priority = 301)]
         public static void TestMedevac()
         {
-            var tak = Object.FindFirstObjectByType<Net.TakServerCotAdapter>();
+            var tak = Object.FindAnyObjectByType<Net.TakServerCotAdapter>();
             if (tak == null) { Debug.LogWarning("[NATO C2] No TAK adapter in scene."); return; }
             tak.PublishMedevac(Vector3.zero, requester: "TEST-OPS",
                                patientCallsign: "ALPHA-3", precedence: 'A',
@@ -88,7 +88,7 @@ namespace NATO.C2.EditorTools
         [MenuItem("NATO C2/CoT Test/Send LZ Marker at origin", priority = 302)]
         public static void TestMarker()
         {
-            var tak = Object.FindFirstObjectByType<Net.TakServerCotAdapter>();
+            var tak = Object.FindAnyObjectByType<Net.TakServerCotAdapter>();
             if (tak == null) { Debug.LogWarning("[NATO C2] No TAK adapter in scene."); return; }
             tak.PublishMarker(Vector3.zero, "LZ-FALCON", cotType: "b-m-p-w");
             Debug.Log("[NATO C2] LZ-FALCON CoT marker emitted at (0,0,0).");

@@ -1,0 +1,107 @@
+# =====================================================================
+#  NATO C2 RTS Hybrid — Nightly jam-storm soak
+#  ---------------------------------------------------------------------
+#  Runs the accelerated jam-storm scenario (timeScale=10) every night
+#  to catch long-tail drift the 6 s default soak misses. Same artifact
+#  uploads as the regular Unity test job — captures + JUnit are
+#  attached so failures land with full forensic data.
+#
+#  The JamStormScenarioTest is [Ignore]-guarded behind
+#  NATO_RUN_JAM_STORM=1 so it only runs when explicitly requested
+#  (here, and via `gh workflow run` for manual triggers).
+# =====================================================================
+
+name: Nightly Jam-Storm
+
+on:
+  schedule:
+    # 08:30 UTC = 01:30 PT = 04:30 ET. Off-peak everywhere.
+    - cron: '30 8 * * *'
+  workflow_dispatch:    # manual trigger from the Actions tab
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-jam-storm
+  cancel-in-progress: true
+
+jobs:
+  jam-storm:
+    name: Nightly EditMode + jam-storm
+    runs-on: ubuntu-latest
+    env:
+      NATO_TEST_ARTIFACTS_DIR: ${{ github.workspace }}/soak-artifacts
+      NATO_REQUIRE_SIGNED_SCENARIOS: "1"
+      NATO_RUN_JAM_STORM: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Prepare artifact directory
+        run: |
+          mkdir -p "${NATO_TEST_ARTIFACTS_DIR}/Captures"
+          mkdir -p "${NATO_TEST_ARTIFACTS_DIR}/Logs"
+
+      - name: Cache Library
+        uses: actions/cache@v4
+        with:
+          path: Library
+          key: Library-EditMode-${{ hashFiles('Assets/**', 'Packages/**', 'ProjectSettings/**') }}
+          restore-keys: |
+            Library-EditMode-
+            Library-
+
+      - name: Run Unity tests (incl. jam-storm)
+        uses: game-ci/unity-test-runner@v4
+        env:
+          UNITY_LICENSE:  ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL:    ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_SERIAL:   ${{ secrets.UNITY_SERIAL }}
+          NATO_TEST_ARTIFACTS_DIR: ${{ env.NATO_TEST_ARTIFACTS_DIR }}
+          NATO_RUN_JAM_STORM: "1"
+        with:
+          testMode: EditMode
+          checkName: Nightly Jam-Storm Test Results
+          projectPath: .
+          artifactsPath: artifacts
+          githubToken: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish JUnit summary
+        if: always()
+        uses: test-summary/action@v2
+        with:
+          paths: artifacts/**/*.xml
+        continue-on-error: true
+
+      - name: Convert + verify capture
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          capture="$(find "${NATO_TEST_ARTIFACTS_DIR}/Captures" -name '*.dpdu' 2>/dev/null | head -1 || true)"
+          if [ -z "${capture}" ]; then
+            echo "::warning::no jam-storm .dpdu found"
+            exit 0
+          fi
+          python3 Tools/verify-dpdu.py "${capture}" || {
+            rc=$?
+            if [ "${rc}" = "2" ]; then echo "::error::jam-storm capture TAMPERED"; exit 2; fi
+            echo "::warning::verify rc=${rc}"
+          }
+          pcap="${NATO_TEST_ARTIFACTS_DIR}/Captures/$(basename "${capture}" .dpdu).pcap"
+          python3 Tools/wireshark/dpdu-to-pcap.py "${capture}" "${pcap}" || true
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-jam-storm-artifacts
+          path: |
+            artifacts
+            ${{ env.NATO_TEST_ARTIFACTS_DIR }}
+          if-no-files-found: ignore

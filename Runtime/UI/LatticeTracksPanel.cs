@@ -60,7 +60,7 @@ namespace NATO.C2.UI
         private void Start()
         {
             _hub = FeedHub.Instance;
-            _engage = FindFirstObjectByType<NATO.C2.EngagementTracker>();
+            _engage = FindAnyObjectByType<NATO.C2.EngagementTracker>();
             if (_hub != null) _hub.OnCot += HandleCot;
         }
 
@@ -117,7 +117,7 @@ namespace NATO.C2.UI
         private DronePipPanel _pip;
         private Sprite SnapshotPipFrame()
         {
-            _pip ??= FindFirstObjectByType<DronePipPanel>();
+            _pip ??= FindAnyObjectByType<DronePipPanel>();
             if (_pip == null || _pip.VideoImage == null) return null;
             var rt = _pip.VideoImage.texture as RenderTexture;
             if (rt == null) return null;

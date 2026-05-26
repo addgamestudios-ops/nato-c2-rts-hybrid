@@ -1,0 +1,65 @@
+# =====================================================================
+#  NATO C2 RTS Hybrid — FreeTAKServer stack
+#  ---------------------------------------------------------------------
+#  One-command FreeTAKServer (FTS) deployment for end-to-end TAK
+#  rehearsal. After `docker compose up -d` the following endpoints are
+#  alive on your LAN:
+#
+#      127.0.0.1:8087   CoT-over-TCP        ← point the Unity adapter here
+#      127.0.0.1:8089   CoT-over-TLS+mTLS   ← prod-grade; needs cert package
+#      127.0.0.1:19023  REST API
+#      127.0.0.1:5000   FTS-UI (web dashboard)
+#      127.0.0.1:8443   webmap (live tactical map)
+#
+#  The Unity TakServerCotAdapter defaults to 127.0.0.1:8087 — flip the
+#  "Connect To Tak Server" toggle on the Bootstrap GameObject and the
+#  demo's friendlies immediately appear on your ATAK phone (paired per
+#  ATAK_PAIRING.md).
+#
+#  IMAGE NOTES
+#  -----------
+#  The `fts-team/freetakserver` image is the official FreeTAKServer
+#  containerised release. The `python:3.11-slim` fallback below is what
+#  the Pip-install path generates if the user prefers it — see
+#  https://github.com/FreeTAKTeam/FreeTakServer for the canonical recipe.
+#
+#  Persistent volumes:
+#      fts_db    — SQLite database + config (FTSConfig.yaml)
+#      fts_certs — generated mTLS cert PKG for ATAK clients
+#                  (download via FTS-UI → Settings → Data Package)
+# =====================================================================
+
+services:
+  freetakserver:
+    image: fts-team/freetakserver:latest
+    container_name: nato_c2_fts
+    restart: unless-stopped
+    ports:
+      - "8087:8087"     # CoT TCP
+      - "8088:8088"     # CoT SSL anonymous
+      - "8089:8089"     # CoT SSL + mTLS
+      - "19023:19023"   # REST API
+      - "5000:5000"     # FTS-UI
+      - "8443:8443"     # webmap
+    volumes:
+      - fts_db:/opt/fts
+      - fts_certs:/opt/fts/certs
+    environment:
+      # First-run admin creds for FTS-UI (change in prod).
+      FTS_ADMIN_USER: admin
+      FTS_ADMIN_PASS: change-me-on-first-login
+
+  # Optional: dedicated webmap container if the bundled one inside FTS
+  # is misbehaving. Uncomment + `docker compose up webmap` to use.
+  #
+  # webmap:
+  #   image: fts-team/freetakserver-webmap:latest
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8444:8443"
+  #   depends_on:
+  #     - freetakserver
+
+volumes:
+  fts_db:
+  fts_certs:

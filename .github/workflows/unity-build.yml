@@ -1,0 +1,109 @@
+# =====================================================================
+#  NATO C2 RTS Hybrid — cross-platform Unity build
+#  ---------------------------------------------------------------------
+#  Builds StandaloneOSX, StandaloneWindows64, and StandaloneLinux64 in
+#  parallel on every push to main, on every tag, and on manual dispatch.
+#
+#  Outputs:
+#      • build-StandaloneOSX        / NATO_C2.app
+#      • build-StandaloneWindows64  / NATO_C2.exe + Data folder
+#      • build-StandaloneLinux64    / NATO_C2.x86_64
+#
+#  Each is uploaded as a GitHub Actions artifact and (on tag push) also
+#  attached to a release.
+#
+#  SECRETS REQUIRED — same as unity-tests.yml:
+#      UNITY_LICENSE / UNITY_EMAIL / UNITY_PASSWORD / UNITY_SERIAL
+#
+#  Cost: each runner is ~10–20 minutes. Library cache makes subsequent
+#  builds ~3–4 min. Free GitHub Actions covers all this for public repos
+#  and gives 2000 free minutes/month for private repos.
+# =====================================================================
+
+name: Unity Build
+
+on:
+  push:
+    branches: [ main ]
+    tags:     [ 'v*' ]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.targetPlatform }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        targetPlatform:
+          - StandaloneOSX
+          - StandaloneWindows64
+          - StandaloneLinux64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Cache Library
+        uses: actions/cache@v4
+        with:
+          path: Library
+          key: Library-${{ matrix.targetPlatform }}-${{ hashFiles('Assets/**', 'Packages/**', 'ProjectSettings/**') }}
+          restore-keys: |
+            Library-${{ matrix.targetPlatform }}-
+            Library-
+
+      - name: Build ${{ matrix.targetPlatform }}
+        uses: game-ci/unity-builder@v4
+        env:
+          UNITY_LICENSE:  ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL:    ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_SERIAL:   ${{ secrets.UNITY_SERIAL }}
+        with:
+          targetPlatform: ${{ matrix.targetPlatform }}
+          # IL2CPP for release builds — smaller + faster than Mono.
+          # Toggle to "Mono2x" if you hit IL2CPP-specific bugs.
+          customParameters: --scriptingBackend IL2CPP
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ matrix.targetPlatform }}
+          path: build/${{ matrix.targetPlatform }}
+
+  # On tag push, gather all three platform artifacts into a single
+  # GitHub Release so users can download the binary they need.
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Zip platforms
+        run: |
+          cd artifacts
+          for d in build-*; do
+            (cd "$d" && zip -r "../${d}.zip" .)
+          done
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/build-StandaloneOSX.zip
+            artifacts/build-StandaloneWindows64.zip
+            artifacts/build-StandaloneLinux64.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

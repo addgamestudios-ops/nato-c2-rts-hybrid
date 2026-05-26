@@ -57,16 +57,172 @@ namespace NATO.C2.UI
 
         private void OnEnable()
         {
-            if (FeedHub.Instance != null) FeedHub.Instance.OnRadio += OnRadio;
+            if (FeedHub.Instance != null)
+            {
+                FeedHub.Instance.OnRadio += OnRadio;
+                FeedHub.Instance.OnCot   += OnCot;
+            }
         }
         private void OnDisable()
         {
-            if (FeedHub.Instance != null) FeedHub.Instance.OnRadio -= OnRadio;
+            if (FeedHub.Instance != null)
+            {
+                FeedHub.Instance.OnRadio -= OnRadio;
+                FeedHub.Instance.OnCot   -= OnCot;
+            }
         }
         private void Start()
         {
             // Late hook in case FeedHub awoke after this panel.
-            if (FeedHub.Instance != null) FeedHub.Instance.OnRadio += OnRadio;
+            if (FeedHub.Instance != null)
+            {
+                FeedHub.Instance.OnRadio += OnRadio;
+                FeedHub.Instance.OnCot   += OnCot;
+            }
+        }
+
+        // ---------- inbound CoT chat (GeoChat / b-t-f) ---------------
+        //  Surface peer operator chat in the local radio panel with a
+        //  [TAK] tag so the operator can tell it came from the network
+        //  vs the local sim.
+        private void OnCot(NATO.C2.Net.CotEvent ev)
+        {
+            if (ev.type == null || !ev.type.StartsWith("b-t-f")) return;
+
+            // Skip our own echoes (per-operator UID prefix).
+            string ownPrefix = NATO.C2.Net.OperatorIdentity.Instance != null
+                ? NATO.C2.Net.OperatorIdentity.Instance.CotPrefix()
+                : "NATO-C2-";
+            if (!string.IsNullOrEmpty(ev.uid) && ev.uid.StartsWith(ownPrefix)) return;
+
+            // Parse sender + body out of the GeoChat detail block.
+            string sender = ExtractAttr(ev.xmlDetail, "senderCallsign") ?? "PEER";
+            string room   = ExtractAttr(ev.xmlDetail, "chatroom") ?? "TANGO-6";
+            string body   = ExtractRemarks(ev.xmlDetail) ?? ev.uid;
+
+            FeedHub.Instance?.PublishRadio(new RadioMessage
+            {
+                net = room,
+                timestampUtc = ev.start == default ? System.DateTime.UtcNow : ev.start,
+                fromCallsign = "[TAK] " + sender,
+                text = body,
+                severity = RadioSeverity.System
+            });
+
+            // -----------------------------------------------------------
+            //  JTAC-on-phone loop: if the peer's first word is a known
+            //  verb ("fires", "medevac", "move on the village", …) route
+            //  the body through IntentParser so the local operator's
+            //  station executes the command. This is what lets a JTAC
+            //  on an ATAK phone issue commands by chat.
+            //
+            //  Loop prevention: IntentParser.TryExecute publishes its
+            //  ACK via FeedHub.PublishRadio (local only), NOT via the
+            //  TAK adapter, so the executed command does NOT get echoed
+            //  back over the wire. We also strip our own UID-prefixed
+            //  events at the top of this handler.
+            // -----------------------------------------------------------
+            if (IsCommandLikeBody(body))
+                TryExecutePeerCommand(body, sender, room);
+        }
+
+        /// <summary>True if the body starts with one of our known intent verbs.</summary>
+        private static bool IsCommandLikeBody(string body)
+        {
+            if (string.IsNullOrWhiteSpace(body)) return false;
+            // Cheap first-token check. The IntentParser still owns full
+            // disambiguation — this is just a gate to avoid running the
+            // parser on every "roger that" or "wilco" peer chat.
+            string trimmed = body.TrimStart();
+            // Find first whitespace.
+            int sp = -1;
+            for (int i = 0; i < trimmed.Length; i++)
+            {
+                if (char.IsWhiteSpace(trimmed[i])) { sp = i; break; }
+            }
+            string head = (sp < 0 ? trimmed : trimmed.Substring(0, sp)).ToLowerInvariant();
+            // Whitelist of verbs IntentParser recognises (keep in sync with IntentVerb).
+            switch (head)
+            {
+                case "move":
+                case "go":
+                case "advance":
+                case "attack":
+                case "engage":
+                case "fire":
+                case "fires":
+                case "shoot":
+                case "hold":
+                case "stop":
+                case "halt":
+                case "loiter":
+                case "orbit":
+                case "rtb":
+                case "return":
+                case "medevac":
+                case "casevac":
+                case "launch":
+                case "drone":
+                case "drones":
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private void TryExecutePeerCommand(string body, string sender, string room)
+        {
+            var mgr     = NATO_C2_Manager.Instance ?? Object.FindAnyObjectByType<NATO_C2_Manager>();
+            if (mgr == null) return;
+            var mission = Object.FindAnyObjectByType<MissionOverlay>();
+            var hud     = Object.FindAnyObjectByType<TacticalHUD>();
+
+            Dictionary<int, List<Agent>> groups = null;
+            if (hud != null && hud.ControlGroups != null)
+            {
+                groups = new Dictionary<int, List<Agent>>(hud.ControlGroups.Count);
+                foreach (var kv in hud.ControlGroups) groups[kv.Key] = kv.Value;
+            }
+
+            // operatorCallsign passed as the PEER's callsign so any
+            // CFF / MEDEVAC CoT the parser emits is attributed to them,
+            // not to the local operator who's just relaying.
+            string rationale = NATO.C2.AI.IntentParser.TryExecute(
+                body, mgr, mission, groups,
+                operatorCallsign: sender,
+                net: room);
+
+            if (string.IsNullOrEmpty(rationale)) return;
+
+            FeedHub.Instance?.PublishRadio(new RadioMessage
+            {
+                net = room,
+                timestampUtc = System.DateTime.UtcNow,
+                fromCallsign = "C2-AI",
+                text = $"<color=#6cf>ack</color> ({sender}) {rationale}",
+                severity = RadioSeverity.System
+            });
+        }
+
+        private static string ExtractAttr(string xml, string attr)
+        {
+            if (string.IsNullOrEmpty(xml)) return null;
+            int i = xml.IndexOf(attr + "=\"", System.StringComparison.Ordinal);
+            if (i < 0) return null;
+            i += attr.Length + 2;
+            int j = xml.IndexOf('"', i);
+            return j > i ? xml.Substring(i, j - i) : null;
+        }
+
+        private static string ExtractRemarks(string xml)
+        {
+            if (string.IsNullOrEmpty(xml)) return null;
+            int o = xml.IndexOf("<remarks", System.StringComparison.Ordinal);
+            if (o < 0) return null;
+            int gt = xml.IndexOf('>', o); if (gt < 0) return null;
+            int c = xml.IndexOf("</remarks>", gt, System.StringComparison.Ordinal);
+            if (c < 0) return null;
+            return xml.Substring(gt + 1, c - gt - 1);
         }
 
         private void OnRadio(RadioMessage msg)
@@ -223,11 +379,18 @@ namespace NATO.C2.UI
                 severity = RadioSeverity.System
             });
 
+            // Mirror the message over CoT GeoChat so peers on the TAK Server
+            // (other Unity instances + ATAK phones) see it persisted in the
+            // server's history. Skip if the chat is intent (commands handled
+            // by IntentParser get echoed as ACK lines from the bot anyway).
+            var takAdapter = Object.FindAnyObjectByType<NATO.C2.Net.TakServerCotAdapter>();
+            takAdapter?.PublishChat(display, operatorCallsign, room: _activeNet);
+
             // Try to resolve the message as an intent and execute it.
             // If parsing fails, the chat message above is the only effect — no harm.
-            var mgr     = NATO_C2_Manager.Instance ?? Object.FindFirstObjectByType<NATO_C2_Manager>();
-            var mission = Object.FindFirstObjectByType<MissionOverlay>();
-            var hud     = Object.FindFirstObjectByType<TacticalHUD>();
+            var mgr     = NATO_C2_Manager.Instance ?? Object.FindAnyObjectByType<NATO_C2_Manager>();
+            var mission = Object.FindAnyObjectByType<MissionOverlay>();
+            var hud     = Object.FindAnyObjectByType<TacticalHUD>();
             Dictionary<int, List<Agent>> groups = null;
             if (hud != null && hud.ControlGroups != null)
             {

@@ -1,0 +1,36 @@
+# =====================================================================
+#  OpenTelemetry Collector — accepts OTLP from Link16OtlpExporter,
+#  exposes a Prometheus scrape endpoint that the Prometheus container
+#  pulls from.
+# =====================================================================
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 5s
+    send_batch_size: 1024
+
+exporters:
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    # Don't add type suffix — keeps metric names matching the dashboard
+    # exactly (nato_c2_l16_arq_sent, not nato_c2_l16_arq_sent_total).
+    add_metric_suffixes: false
+    resource_to_telemetry_conversion:
+      enabled: true
+  logging:
+    verbosity: basic
+
+service:
+  pipelines:
+    metrics:
+      receivers:  [otlp]
+      processors: [batch]
+      exporters:  [prometheus, logging]

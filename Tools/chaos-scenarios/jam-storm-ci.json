@@ -1,0 +1,19 @@
+{
+  "name": "jam-storm-ci",
+  "description": "CI-paced jam-storm — same shape as jam-storm.json compressed 10x via timeScale. Runs ~4s of wall-clock so it fits inside a normal Unity test budget.",
+  "timeScale": 10.0,
+  "steps": [
+    { "atSec":  0.0, "kind": "SetDropRate", "valueFloat":  0.0, "valueText": "" },
+    { "atSec":  5.0, "kind": "SetDropRate", "valueFloat": 50.0, "valueText": "" },
+    { "atSec": 10.0, "kind": "SetDropRate", "valueFloat": 80.0, "valueText": "" },
+    { "atSec": 20.0, "kind": "SetDropRate", "valueFloat": 95.0, "valueText": "" },
+    { "atSec": 30.0, "kind": "SetDropRate", "valueFloat":  0.0, "valueText": "" },
+    { "atSec": 40.0, "kind": "End",         "valueFloat":  0.0, "valueText": "" }
+  ],
+  "expectedOutcome": {
+    "minTransmitted": 1,
+    "maxRetryRate":   3.0,
+    "maxFailRate":    0.5,
+    "minAcked":       0
+  }
+}

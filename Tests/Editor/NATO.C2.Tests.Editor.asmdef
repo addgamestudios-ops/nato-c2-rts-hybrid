@@ -3,6 +3,7 @@
   "rootNamespace": "NATO.C2.Tests",
   "references": [
     "NATO.C2.Runtime",
+    "NATO.C2.Editor",
     "UnityEngine.TestRunner",
     "UnityEditor.TestRunner"
   ],

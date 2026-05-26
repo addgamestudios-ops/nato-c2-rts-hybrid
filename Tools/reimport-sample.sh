@@ -59,3 +59,15 @@ rsync -av --include="*.cs" --exclude="*" "$SRC/" "$DST/"
 echo
 echo "[reimport] Done. Switch to Unity — it will recompile within a few seconds."
 echo "[reimport] If the Console shows red, ask Claude to read it via the MCP."
+
+# Tests are now auto-discovered from the package via Packages/manifest.json
+# `testables`. We used to copy Tests/Editor into Assets/Tests/Editor but that
+# created a duplicate-asmdef compile error ("Assembly with name
+# 'NATO.C2.Tests.Editor' already exists"). If you have an old Assets/Tests
+# folder lingering from a prior run, the block below removes it.
+OLD_TESTS_DST="$HOME/Desktop/NATO_C2_Local/Assets/Tests"
+if [ -d "$OLD_TESTS_DST" ]; then
+  rm -rf "$OLD_TESTS_DST" "$OLD_TESTS_DST.meta"
+  echo "[reimport] Removed legacy Assets/Tests duplicate (package now auto-discovers tests)"
+fi
+echo "[reimport]   Open Unity → Window → General → Test Runner → EditMode tab → Run All"

@@ -108,6 +108,51 @@ namespace NATO.C2.Net
         [Tooltip("If true, foreign CoT events received from the server are republished on FeedHub.")]
         public bool republishInbound = true;
 
+        // -------------------------------------------------------------
+        //  STANAG 4774 confidentiality label config.
+        //  ---------------------------------------------------------
+        //  Every outbound CoT event embeds a <confidentialityLabel> block
+        //  inside <detail> when emitClassificationLabel is true. The label
+        //  is structured per the STANAG 4774 schema:
+        //
+        //      <confidentialityLabel xmlns="urn:nato:stanag:4774:bindinginformation:1:0">
+        //        <originator>
+        //          <ownerCountry>NLD</ownerCountry>
+        //          <ownerOrg>NATO/JFC NAPLES</ownerOrg>
+        //        </originator>
+        //        <confidentialityInformation>
+        //          <policyIdentifier>NATO</policyIdentifier>
+        //          <classification>UNCLASSIFIED</classification>
+        //          <category type="permissive">REL TO USA,GBR,CAN,AUS,NZL</category>
+        //        </confidentialityInformation>
+        //        <created>2026-05-26T11:00:00Z</created>
+        //      </confidentialityLabel>
+        //
+        //  STANAG 4778 is the binding-information envelope that ties the
+        //  label cryptographically to the payload. A production deployment
+        //  signs the CoT event hash with the originator's smart-card key
+        //  and includes the signature here. We leave a TODO marker — wiring
+        //  PKCS#7 signing needs the same X.509 cert load path the TLS code
+        //  uses, plus a Bouncy Castle / OpenSSL invocation.
+        // -------------------------------------------------------------
+        [Header("STANAG 4774 confidentiality label")]
+        [Tooltip("Emit a <confidentialityLabel> block in every outbound CoT event. Required for NATO classified deployment; safe to leave on for exercises (defaults to UNCLASSIFIED).")]
+        public bool emitClassificationLabel = true;
+        public enum Classification { UNCLASSIFIED, RESTRICTED, NATO_RESTRICTED, CONFIDENTIAL, NATO_CONFIDENTIAL, SECRET, NATO_SECRET, COSMIC_TOP_SECRET }
+        public Classification classification = Classification.UNCLASSIFIED;
+        [Tooltip("ISO 3166-1 alpha-3 country code of the originator (e.g. USA, GBR, NLD, FRA, DEU).")]
+        public string originatorCountry = "USA";
+        [Tooltip("Originating organization. Free text.")]
+        public string originatorOrg = "USMC / III MEF";
+        [Tooltip("Policy authority. \"NATO\" for NATO traffic, \"US-DOD\" for US national, etc.")]
+        public string policyIdentifier = "NATO";
+        [Tooltip("Releasability caveat. ATPN syntax. Example: \"REL TO USA, GBR, CAN, AUS, NZL\" (Five Eyes).")]
+        public string releasabilityCaveat = "REL TO USA, GBR, CAN, AUS, NZL";
+        [Tooltip("Optional ACCM (Alternative Compensatory Control Measures) caveat. Leave empty if none.")]
+        public string accmCaveat = "";
+        [Tooltip("STANAG 4778 binding signature — PRODUCTION-TODO. We currently emit a placeholder hash; real deployments sign with the operator's PIV/CAC key.")]
+        public bool emitBindingPlaceholder = true;
+
         // ---------- runtime state -------------------------------------
         private FeedHub _hub;
         private TcpClient _tcp;
@@ -265,6 +310,14 @@ namespace NATO.C2.Net
             {
                 while (_outQ.TryDequeue(out var xml))
                 {
+                    // STANAG 4778 signing — if a CotSigner is in the scene and
+                    // configured, swap the placeholder binding block for a
+                    // real RSA-2048 signature over the canonical payload.
+                    if (CotSigner.Instance != null && CotSigner.Instance.IsLoaded)
+                    {
+                        try { xml = CotSigner.Instance.SignEvent(xml); }
+                        catch (Exception e) { Debug.LogWarning($"[TAK] Sign skipped: {e.Message}"); }
+                    }
                     var bytes = enc.GetBytes(xml);
                     _stream.Write(bytes, 0, bytes.Length);
                 }
@@ -314,6 +367,21 @@ namespace NATO.C2.Net
                         {
                             var doc = new System.Xml.XmlDocument();
                             doc.LoadXml(chunk);
+                            // STANAG 4778 signature verification — only when
+                            // explicitly required by the operator's policy. The
+                            // signer's trust store is loaded lazily on first hit.
+                            if (CotSigner.Instance != null && CotSigner.Instance.requireSignatures)
+                            {
+                                var verdict = CotSigner.Instance.VerifyEvent(chunk);
+                                if (verdict != CotSigner.VerifyResult.Ok)
+                                {
+                                    // Drop the event but log so the operator can
+                                    // diagnose trust-store gaps.
+                                    Debug.LogWarning($"[TAK] Inbound CoT REJECTED — {verdict}. " +
+                                                     $"uid={(System.Text.RegularExpressions.Regex.Match(chunk, @"uid=\""([^\""]+)\""").Groups[1].Value)}");
+                                    continue;
+                                }
+                            }
                             var evt = ReadEvent(doc.DocumentElement);
                             _inQ.Enqueue(evt);
                         }
@@ -446,7 +514,7 @@ namespace NATO.C2.Net
         {
             var (lat, lon) = WorldToLatLon(worldTarget);
             float hae = worldTarget.y * metresPerUnit;
-            string uid = $"NATO-C2-CFF-{System.Guid.NewGuid().ToString("N").Substring(0, 8).ToUpperInvariant()}";
+            string uid = $"{OpPrefix()}CFF-{System.Guid.NewGuid().ToString("N").Substring(0, 8).ToUpperInvariant()}";
 
             DateTime now = DateTime.UtcNow;
             string nowS   = now.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);
@@ -473,6 +541,7 @@ namespace NATO.C2.Net
             if (!string.IsNullOrEmpty(remarks))
                 sb.Append("<remarks>").Append(SafeXml(remarks)).Append("</remarks>");
             sb.Append("<takv version=\"0.1.0\" platform=\"NATO-C2-RTS-Hybrid\"/>");
+            AppendSecurityLabel(sb);
             sb.Append("</detail>");
             sb.Append("</event>");
             _outQ.Enqueue(sb.ToString());
@@ -489,7 +558,7 @@ namespace NATO.C2.Net
         {
             var (lat, lon) = WorldToLatLon(worldTarget);
             float hae = worldTarget.y * metresPerUnit;
-            string uid = $"NATO-C2-MEDEVAC-{System.Guid.NewGuid().ToString("N").Substring(0, 8).ToUpperInvariant()}";
+            string uid = $"{OpPrefix()}MEDEVAC-{System.Guid.NewGuid().ToString("N").Substring(0, 8).ToUpperInvariant()}";
 
             DateTime now = DateTime.UtcNow;
             string nowS   = now.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);
@@ -525,6 +594,64 @@ namespace NATO.C2.Net
             if (!string.IsNullOrEmpty(remarks))
                 sb.Append("<remarks>").Append(SafeXml(remarks)).Append("</remarks>");
             sb.Append("<takv version=\"0.1.0\" platform=\"NATO-C2-RTS-Hybrid\"/>");
+            AppendSecurityLabel(sb);
+            sb.Append("</detail>");
+            sb.Append("</event>");
+            _outQ.Enqueue(sb.ToString());
+        }
+
+        /// <summary>
+        /// Publish a GeoChat-style operator chat message (CoT type b-t-f).
+        /// ATAK renders these as chat bubbles tied to the operator's
+        /// callsign. Persists via the TAK Server's message history so
+        /// peers who join late still see prior traffic.
+        /// </summary>
+        public void PublishChat(string body, string fromCallsign, string room = "All Chat Rooms")
+        {
+            if (string.IsNullOrEmpty(body)) return;
+            // Anchor the chat to current camera-center so the chat bubble has
+            // a geo position (ATAK Connection requirement for b-t-f).
+            Vector3 world = Vector3.zero;
+            var cam = Camera.main;
+            if (cam != null)
+            {
+                var ray = cam.ScreenPointToRay(new Vector2(Screen.width * 0.5f, Screen.height * 0.5f));
+                if (new Plane(Vector3.up, Vector3.zero).Raycast(ray, out float t))
+                    world = ray.GetPoint(t);
+            }
+            var (lat, lon) = WorldToLatLon(world);
+            string uid = $"{OpPrefix()}CHAT-{System.Guid.NewGuid().ToString("N").Substring(0, 8).ToUpperInvariant()}";
+            DateTime now = DateTime.UtcNow;
+            string nowS   = now.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);
+            string staleS = now.AddSeconds(86400) // 24h — chat history sticks around
+                              .ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);
+
+            var sb = new StringBuilder(384);
+            sb.Append("<event version=\"2.0\"")
+              .Append(" uid=\"").Append(uid).Append("\"")
+              .Append(" type=\"b-t-f\"")              // CoT chat / free text
+              .Append(" time=\"").Append(nowS).Append("\"")
+              .Append(" start=\"").Append(nowS).Append("\"")
+              .Append(" stale=\"").Append(staleS).Append("\"")
+              .Append(" how=\"h-g-i-g-o\">");
+            sb.Append("<point")
+              .Append(" lat=\"").Append(lat.ToString("F6", CultureInfo.InvariantCulture)).Append("\"")
+              .Append(" lon=\"").Append(lon.ToString("F6", CultureInfo.InvariantCulture)).Append("\"")
+              .Append(" hae=\"0\" ce=\"9999999\" le=\"9999999\"/>");
+            sb.Append("<detail>");
+            // ATAK GeoChat schema — __chat with id + senderCallsign + chatroom.
+            sb.Append("<__chat")
+              .Append(" id=\"").Append(uid).Append("\"")
+              .Append(" chatroom=\"").Append(SafeXml(room)).Append("\"")
+              .Append(" senderCallsign=\"").Append(SafeXml(fromCallsign)).Append("\"")
+              .Append(" parent=\"RootContactGroup\">");
+            sb.Append("<chatgrp id=\"").Append(SafeXml(room)).Append("\" uid0=\"").Append(SafeXml(fromCallsign)).Append("\"/>");
+            sb.Append("</__chat>");
+            sb.Append("<remarks source=\"").Append(SafeXml(fromCallsign)).Append("\" time=\"").Append(nowS).Append("\" to=\"")
+              .Append(SafeXml(room)).Append("\">").Append(SafeXml(body)).Append("</remarks>");
+            sb.Append("<contact callsign=\"").Append(SafeXml(fromCallsign)).Append("\"/>");
+            sb.Append("<takv version=\"0.1.0\" platform=\"NATO-C2-RTS-Hybrid\"/>");
+            AppendSecurityLabel(sb);
             sb.Append("</detail>");
             sb.Append("</event>");
             _outQ.Enqueue(sb.ToString());
@@ -536,7 +663,7 @@ namespace NATO.C2.Net
         {
             var (lat, lon) = WorldToLatLon(worldTarget);
             float hae = worldTarget.y * metresPerUnit;
-            string uid = $"NATO-C2-MARK-{System.Guid.NewGuid().ToString("N").Substring(0, 8).ToUpperInvariant()}";
+            string uid = $"{OpPrefix()}MARK-{System.Guid.NewGuid().ToString("N").Substring(0, 8).ToUpperInvariant()}";
 
             DateTime now = DateTime.UtcNow;
             string nowS   = now.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);
@@ -559,9 +686,92 @@ namespace NATO.C2.Net
             sb.Append("<contact callsign=\"").Append(SafeXml(label ?? "MARK")).Append("\"/>");
             sb.Append("<__group name=\"Cyan\" role=\"\"/>");
             sb.Append("<takv version=\"0.1.0\" platform=\"NATO-C2-RTS-Hybrid\"/>");
+            AppendSecurityLabel(sb);
             sb.Append("</detail>");
             sb.Append("</event>");
             _outQ.Enqueue(sb.ToString());
+        }
+
+        // ---------- public helpers for sibling components -----------
+        /// <summary>Enqueue a hand-built CoT XML event for outbound dispatch.
+        /// Used by OperatorPresenceBroadcaster which needs custom detail
+        /// blocks that PublishMarker / PublishCallForFire don't cover.</summary>
+        public void EnqueueRawEvent(string xml)
+        {
+            if (string.IsNullOrEmpty(xml)) return;
+            _outQ.Enqueue(xml);
+        }
+
+        /// <summary>WGS-84 projection helper exposed for peer components
+        /// (e.g. the operator-presence broadcaster) that need the same
+        /// lat/lon convention as outbound CoT events.</summary>
+        public (double lat, double lon) WorldToLatLonPublic(Vector3 world) => WorldToLatLon(world);
+
+        // ---------- per-operator UID namespace -----------------------
+        //  Each Unity instance has its own OperatorIdentity (e.g. "W1",
+        //  "F3"). UIDs become "NATO-C2-W1-CFF-XXXX" so two operators
+        //  pushing to the same TAK Server never collide on the wire.
+        private string OpPrefix()
+        {
+            var ident = OperatorIdentity.Instance;
+            if (ident != null && !string.IsNullOrEmpty(ident.stationPrefix))
+                return ident.CotPrefix();
+            return "NATO-C2-";
+        }
+
+        // ---------- STANAG 4774 label helper ------------------------
+        //  Appends a <confidentialityLabel> block + optional STANAG 4778
+        //  binding placeholder. Inlined into every BuildEventXml path so
+        //  every outbound CoT event carries the operator's classification.
+        private void AppendSecurityLabel(StringBuilder sb)
+        {
+            if (!emitClassificationLabel) return;
+
+            // Map enum to STANAG 4774 string. NATO_* prefixes encode the
+            // "NATO domain" variant; the schema represents this via the
+            // policy identifier on the same line.
+            string clsStr = classification switch
+            {
+                Classification.UNCLASSIFIED         => "UNCLASSIFIED",
+                Classification.RESTRICTED           => "RESTRICTED",
+                Classification.NATO_RESTRICTED      => "NATO RESTRICTED",
+                Classification.CONFIDENTIAL         => "CONFIDENTIAL",
+                Classification.NATO_CONFIDENTIAL    => "NATO CONFIDENTIAL",
+                Classification.SECRET               => "SECRET",
+                Classification.NATO_SECRET          => "NATO SECRET",
+                Classification.COSMIC_TOP_SECRET    => "COSMIC TOP SECRET",
+                _                                   => "UNCLASSIFIED"
+            };
+            string nowS = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);
+
+            sb.Append("<confidentialityLabel xmlns=\"urn:nato:stanag:4774:bindinginformation:1:0\">");
+            sb.Append("<originator>");
+            sb.Append("<ownerCountry>").Append(SafeXml(originatorCountry)).Append("</ownerCountry>");
+            sb.Append("<ownerOrg>").Append(SafeXml(originatorOrg)).Append("</ownerOrg>");
+            sb.Append("</originator>");
+            sb.Append("<confidentialityInformation>");
+            sb.Append("<policyIdentifier>").Append(SafeXml(policyIdentifier)).Append("</policyIdentifier>");
+            sb.Append("<classification>").Append(clsStr).Append("</classification>");
+            if (!string.IsNullOrEmpty(releasabilityCaveat))
+                sb.Append("<category type=\"permissive\">").Append(SafeXml(releasabilityCaveat)).Append("</category>");
+            if (!string.IsNullOrEmpty(accmCaveat))
+                sb.Append("<category type=\"restrictive\">").Append(SafeXml(accmCaveat)).Append("</category>");
+            sb.Append("</confidentialityInformation>");
+            sb.Append("<created>").Append(nowS).Append("</created>");
+            sb.Append("</confidentialityLabel>");
+
+            // STANAG 4778 binding placeholder.  Real deployments compute a
+            // SHA-256 over the canonicalised <event> with the label removed,
+            // sign it with the operator's CAC/PIV PKCS#11 key, and embed a
+            // <bindingInformation> block here with the signature + cert ref.
+            if (emitBindingPlaceholder)
+            {
+                sb.Append("<bindingInformation xmlns=\"urn:nato:stanag:4778:bindinginformation:1:0\">");
+                sb.Append("<status>placeholder</status>");
+                sb.Append("<signatureAlgorithm>SHA-256/RSA-2048</signatureAlgorithm>");
+                sb.Append("<signatureValue>PRODUCTION-TODO-sign-with-PIV-CAC</signatureValue>");
+                sb.Append("</bindingInformation>");
+            }
         }
 
         private static string SafeXml(string s)
@@ -576,7 +786,7 @@ namespace NATO.C2.Net
             var (lat, lon) = WorldToLatLon(a.transform.position);
             float hae = a.transform.position.y * metresPerUnit;
             string type = CotTypeFor(a);
-            string uid  = "NATO-C2-" + a.callsign;
+            string uid  = OpPrefix() + a.callsign;
 
             DateTime now = DateTime.UtcNow;
             string nowS   = now.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);
@@ -611,6 +821,7 @@ namespace NATO.C2.Net
               .Append(a.currentVelocity.magnitude.ToString("F1", CultureInfo.InvariantCulture))
               .Append("\"/>");
             sb.Append("<takv version=\"0.1.0\" platform=\"NATO-C2-RTS-Hybrid\"/>");
+            AppendSecurityLabel(sb);
             sb.Append("</detail>");
             sb.Append("</event>");
             return sb.ToString();

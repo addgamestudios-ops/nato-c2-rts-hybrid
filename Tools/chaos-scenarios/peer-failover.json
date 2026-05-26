@@ -1,0 +1,10 @@
+{
+  "name": "peer-failover",
+  "description": "Baseline traffic, then a named peer drops; recovery script restores them. Tests federation health alarm + cooperative ACK recovery.",
+  "steps": [
+    { "atSec":  0.0, "kind": "SetDropRate", "valueFloat":  0.0, "valueText": ""    },
+    { "atSec":  5.0, "kind": "PeerDrop",    "valueFloat":  0.0, "valueText": "W1"  },
+    { "atSec": 40.0, "kind": "PeerRestore", "valueFloat":  0.0, "valueText": "W1"  },
+    { "atSec": 50.0, "kind": "End",         "valueFloat":  0.0, "valueText": ""    }
+  ]
+}

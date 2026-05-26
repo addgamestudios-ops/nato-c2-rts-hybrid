@@ -70,7 +70,7 @@ namespace NATO.C2.UI
         private void Start()
         {
             _hub = FeedHub.Instance;
-            _tak = FindFirstObjectByType<TakServerCotAdapter>();
+            _tak = FindAnyObjectByType<TakServerCotAdapter>();
             _canvas = GetComponentInParent<Canvas>();
             if (_pip.VideoImage != null) _videoRect = _pip.VideoImage.rectTransform;
             BuildCrosshair();

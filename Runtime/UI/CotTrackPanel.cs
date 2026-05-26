@@ -70,7 +70,13 @@ namespace NATO.C2.UI
         {
             if (string.IsNullOrEmpty(ev.uid)) return;
             // Skip echoes of our own outbound events.
-            if (!string.IsNullOrEmpty(ownPrefix) && ev.uid.StartsWith(ownPrefix)) return;
+            // Filter out our own echoes (per-operator prefix from OperatorIdentity
+            // if set, falling back to the Inspector ownPrefix). Peer operators'
+            // tracks WILL flow through and render as TAK markers.
+            string effectiveOwn = NATO.C2.Net.OperatorIdentity.Instance != null
+                ? NATO.C2.Net.OperatorIdentity.Instance.CotPrefix()
+                : ownPrefix;
+            if (!string.IsNullOrEmpty(effectiveOwn) && ev.uid.StartsWith(effectiveOwn)) return;
 
             if (!_markers.TryGetValue(ev.uid, out var m))
             {
@@ -90,14 +96,15 @@ namespace NATO.C2.UI
         //  Each shape is a tiny composite of Unity primitives so we can
         //  read it on the OSM ground at a glance — no shaders needed.
 
-        private enum SymbolKind { Quad, Star, Cross, Flag }
+        private enum SymbolKind { Quad, Star, Cross, Flag, Presence }
 
         private static SymbolKind KindFor(string cotType)
         {
             if (string.IsNullOrEmpty(cotType)) return SymbolKind.Quad;
-            if (cotType.StartsWith("b-r-f"))  return SymbolKind.Star;   // request fires
-            if (cotType.StartsWith("b-r-c-m")) return SymbolKind.Cross; // request medical
-            if (cotType.StartsWith("b-m-p"))  return SymbolKind.Flag;   // marker point
+            if (cotType.StartsWith("b-r-f"))   return SymbolKind.Star;     // request fires
+            if (cotType.StartsWith("b-r-c-m")) return SymbolKind.Cross;    // request medical
+            if (cotType.StartsWith("b-d-c-l")) return SymbolKind.Presence; // peer operator watching here
+            if (cotType.StartsWith("b-m-p"))   return SymbolKind.Flag;     // marker point
             return SymbolKind.Quad;
         }
 
@@ -113,10 +120,11 @@ namespace NATO.C2.UI
 
             Transform shape = kind switch
             {
-                SymbolKind.Star  => BuildStar (go.transform, matInst),
-                SymbolKind.Cross => BuildCross(go.transform, matInst),
-                SymbolKind.Flag  => BuildFlag (go.transform, matInst),
-                _                => BuildQuad (go.transform, matInst),
+                SymbolKind.Star     => BuildStar     (go.transform, matInst),
+                SymbolKind.Cross    => BuildCross    (go.transform, matInst),
+                SymbolKind.Flag     => BuildFlag     (go.transform, matInst),
+                SymbolKind.Presence => BuildPresence (go.transform, matInst),
+                _                   => BuildQuad     (go.transform, matInst),
             };
 
             // Floating label.
@@ -217,11 +225,51 @@ namespace NATO.C2.UI
 
         private static string LabelPrefixFor(SymbolKind k) => k switch
         {
-            SymbolKind.Star  => "FIRE MISSION",
-            SymbolKind.Cross => "MEDEVAC",
-            SymbolKind.Flag  => "MARK",
-            _                => "TAK"
+            SymbolKind.Star     => "FIRE MISSION",
+            SymbolKind.Cross    => "MEDEVAC",
+            SymbolKind.Flag     => "MARK",
+            SymbolKind.Presence => "OPERATOR",
+            _                   => "TAK"
         };
+
+        // Operator presence — small head-and-shoulders pip + "watching"
+        // ring. Looks like a person silhouette with a transparent circle
+        // around it; ATAK/Lattice operators use a similar grammar to
+        // show "where another operator is looking" in collab sessions.
+        private Transform BuildPresence(Transform parent, Material mat)
+        {
+            var pres = new GameObject("Presence");
+            pres.transform.SetParent(parent, false);
+
+            // Head (small sphere on top)
+            var head = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            head.name = "Head";
+            head.transform.SetParent(pres.transform, false);
+            head.transform.localScale = new Vector3(0.4f, 0.4f, 0.4f);
+            head.transform.localPosition = new Vector3(0f, 0.55f, 0f);
+            Destroy(head.GetComponent<Collider>());
+            head.GetComponent<Renderer>().sharedMaterial = mat;
+
+            // Shoulders (a flat cylinder)
+            var shoulders = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            shoulders.name = "Shoulders";
+            shoulders.transform.SetParent(pres.transform, false);
+            shoulders.transform.localScale = new Vector3(0.55f, 0.18f, 0.55f);
+            shoulders.transform.localPosition = new Vector3(0f, 0.20f, 0f);
+            Destroy(shoulders.GetComponent<Collider>());
+            shoulders.GetComponent<Renderer>().sharedMaterial = mat;
+
+            // Watching ring (circle on the ground around the operator).
+            var ring = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            ring.name = "WatchRing";
+            ring.transform.SetParent(pres.transform, false);
+            ring.transform.localScale = new Vector3(2.6f, 0.02f, 2.6f);
+            ring.transform.localPosition = new Vector3(0f, 0.05f, 0f);
+            Destroy(ring.GetComponent<Collider>());
+            ring.GetComponent<Renderer>().sharedMaterial = mat;
+
+            return pres.transform;
+        }
 
         // Cheap shader-free flash: scale UnlitColor material brightness in a sine wave.
         private class FlashPulse : MonoBehaviour

@@ -38,8 +38,8 @@ namespace NATO.C2.UI
 
         private void Start()
         {
-            _brackets = FindFirstObjectByType<MavenBrackets>();
-            _requests = FindFirstObjectByType<IncomingRequestPanel>();
+            _brackets = FindAnyObjectByType<MavenBrackets>();
+            _requests = FindAnyObjectByType<IncomingRequestPanel>();
             _cam = Camera.main;
         }
 

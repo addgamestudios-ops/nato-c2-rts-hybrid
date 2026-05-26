@@ -68,6 +68,17 @@ if existing == new_entry:
     print(f"[unity-mcp] already registered (no changes) at {path}")
     sys.exit(0)
 
+# Optional env vars — pull through from the operator's shell so a
+# single-line set in their .zshrc / .bash_profile is enough to
+# enable multi-instance routing or token auth.
+env_passthrough = {}
+for var in ("UNITY_MCP_INSTANCES", "UNITY_MCP_TOKEN",
+            "SLACK_CHAOS_WEBHOOK_URL", "OTLP_ENDPOINT"):
+    v = os.environ.get(var)
+    if v: env_passthrough[var] = v
+if env_passthrough:
+    new_entry["env"] = env_passthrough
+
 cfg["mcpServers"]["unity"] = new_entry
 
 tmp = path + ".tmp"
@@ -82,4 +93,17 @@ print(f"[unity-mcp] server:   {server}")
 PY
 
 echo
+echo "[unity-mcp] running self-test..."
+if "$PYTHON_BIN" "$INSTALLED_SERVER" --self-test; then
+  echo "[unity-mcp] self-test PASSED"
+else
+  echo "[unity-mcp] self-test FAILED — server is broken; do NOT relaunch Claude until fixed." >&2
+  exit 1
+fi
+echo
+echo "[unity-mcp] running doctor (install diagnostic)..."
+"$PYTHON_BIN" "$INSTALLED_SERVER" --doctor || true
+echo
 echo "[unity-mcp] Done. Cmd+Q Claude desktop and reopen to activate."
+echo "[unity-mcp] To re-check anytime:"
+echo "             $PYTHON_BIN $INSTALLED_SERVER --doctor"

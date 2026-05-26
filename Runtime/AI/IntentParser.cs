@@ -359,7 +359,7 @@ namespace NATO.C2.AI
                     // 2. Publish a typed CoT Call-For-Fire — if the TAK adapter
                     //    is connected, this hits ATAK / TAK Server / federated peers
                     //    with proper lat/lon so they see the pin on their map.
-                    var tak = Object.FindFirstObjectByType<NATO.C2.Net.TakServerCotAdapter>();
+                    var tak = Object.FindAnyObjectByType<NATO.C2.Net.TakServerCotAdapter>();
                     tak?.PublishCallForFire(intent.where, operatorCallsign,
                                             remarks: $"Requested via {net} net");
                     // 3. Radio echo so the operator sees the request go out.
@@ -385,7 +385,7 @@ namespace NATO.C2.AI
                     if (intent.who != null && intent.who.Count > 0 && intent.who[0] != null)
                         patientCs = intent.who[0].callsign;
 
-                    var tak = Object.FindFirstObjectByType<NATO.C2.Net.TakServerCotAdapter>();
+                    var tak = Object.FindAnyObjectByType<NATO.C2.Net.TakServerCotAdapter>();
                     tak?.PublishMedevac(intent.where, operatorCallsign,
                                         patientCallsign: patientCs,
                                         precedence: precedence,

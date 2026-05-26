@@ -1,0 +1,16 @@
+{
+  "name": "smoke",
+  "description": "Short baseline test — 0% → light drops → recovery. Should always pass; runs in CI.",
+  "steps": [
+    { "atSec":  0.0, "kind": "SetDropRate", "valueFloat":  0.0, "valueText": "" },
+    { "atSec":  2.0, "kind": "SetDropRate", "valueFloat": 20.0, "valueText": "" },
+    { "atSec":  4.0, "kind": "SetDropRate", "valueFloat":  0.0, "valueText": "" },
+    { "atSec":  5.0, "kind": "End",         "valueFloat":  0.0, "valueText": "" }
+  ],
+  "expectedOutcome": {
+    "minTransmitted": 1,
+    "maxRetryRate":   0.5,
+    "maxFailRate":    0.1,
+    "minAcked":       0
+  }
+}

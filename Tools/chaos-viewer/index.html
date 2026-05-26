@@ -1,0 +1,565 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>NATO C2 — Chaos Bundle Viewer</title>
+<style>
+  :root {
+    --bg:        #0a0f14;
+    --panel:     #121a22;
+    --line:      #1d2a36;
+    --text:      #e6eef7;
+    --muted:     #7a8a9a;
+    --accent:    #6cf;
+    --warn:      #ffb84d;
+    --crit:      #ff5466;
+    --ok:        #5fdc94;
+    --slotA:     #6cf;
+    --slotB:     #d09bff;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg); color: var(--text);
+    font: 13px/1.45 -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, sans-serif;
+  }
+  header {
+    padding: 14px 22px; border-bottom: 1px solid var(--line);
+    display: flex; align-items: baseline; gap: 18px;
+  }
+  header h1 { margin: 0; font-size: 16px; font-weight: 600; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  main { padding: 18px 22px; max-width: 1280px; margin: 0 auto; }
+  .slots { display: flex; gap: 14px; margin-bottom: 18px; }
+  .slot {
+    flex: 1; border: 2px dashed var(--line); border-radius: 8px;
+    padding: 16px; min-height: 100px; transition: border-color .15s ease;
+  }
+  .slot.dragover { border-color: var(--accent); }
+  .slot h3 { margin: 0 0 6px 0; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
+  .slot.a h3 { color: var(--slotA); }
+  .slot.b h3 { color: var(--slotB); }
+  .slot p   { margin: 4px 0; color: var(--muted); font-size: 12px; }
+  .slot input[type=file] { color: var(--muted); margin-top: 4px; }
+  .panel {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: 14px 16px; margin-bottom: 14px;
+  }
+  .panel h2 {
+    margin: 0 0 10px 0; font-size: 13px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .08em; color: var(--accent);
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 500; }
+  .num  { text-align: right; font-variant-numeric: tabular-nums; }
+  .slotA-c { color: var(--slotA); }
+  .slotB-c { color: var(--slotB); }
+  .delta-up   { color: var(--crit); }
+  .delta-down { color: var(--ok); }
+  .delta-zero { color: var(--muted); }
+  .timeline { position: relative; height: 64px; margin: 6px 0 12px 0; border-bottom: 1px solid var(--line); }
+  .timeline .step {
+    position: absolute; bottom: 0; width: 2px; height: 32px; background: var(--accent);
+  }
+  .timeline .step.end { background: var(--warn); height: 48px; }
+  .timeline .label {
+    position: absolute; bottom: 36px; transform: translateX(-50%);
+    font-size: 10px; color: var(--muted); white-space: nowrap;
+  }
+  img.screenshot { max-width: 100%; border-radius: 4px; border: 1px solid var(--line); }
+  pre.scenario {
+    background: var(--bg); border: 1px solid var(--line); border-radius: 4px;
+    padding: 8px 10px; overflow-x: auto; font-size: 12px; color: var(--muted);
+  }
+  .empty   { color: var(--muted); font-style: italic; }
+  .clearbtn{
+    float: right; font-size: 11px; color: var(--muted); background: none;
+    border: 1px solid var(--line); border-radius: 4px; padding: 2px 8px; cursor: pointer;
+  }
+  .clearbtn:hover { color: var(--text); border-color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1>NATO C2 — Chaos Bundle Viewer</h1>
+  <span class="sub">Drop one bundle to view; drop two to compare.</span>
+</header>
+<main>
+  <div class="slots">
+    <div class="slot a" id="slotA">
+      <h3>SLOT A — base</h3>
+      <p>Drop a <code>chaos-{timestamp}/</code> folder, or pick its files:</p>
+      <input type="file" multiple accept=".dpdu,.csv,.txt,.png" data-slot="A">
+      <p id="labelA" class="empty">no bundle</p>
+    </div>
+    <div class="slot b" id="slotB">
+      <h3>SLOT B — compare with</h3>
+      <p>Drop a second bundle to see deltas side-by-side.</p>
+      <input type="file" multiple accept=".dpdu,.csv,.txt,.png" data-slot="B">
+      <p id="labelB" class="empty">no bundle</p>
+    </div>
+  </div>
+  <div id="output"></div>
+</main>
+
+<script>
+// =====================================================================
+//  D_PDU parser (mirrors Stanag5066DPdu.TryParseBytes in C#).
+// =====================================================================
+const D_PDU_TYPE = { 0: 'DATA-ONLY', 2: 'DATA-WITH-ACK', 3: 'SREJ', 4: 'NON-ARQ' };
+const SYNC0 = 0x90, SYNC1 = 0xEB;
+
+function parseDPdu(bytes) {
+  if (bytes.length < 20) return null;
+  if (bytes[0] !== SYNC0 || bytes[1] !== SYNC1) return null;
+  const type = (bytes[2] >> 4) & 0x0F;
+  const payloadSize = (bytes[5] << 8) | bytes[6];
+  if (bytes.length < 16 + payloadSize + 4) return null;
+  const esn = (bytes[12] << 8) | bytes[13];
+  let ack = 0, mode = 0, msgCount = 0;
+  if (type === 2 || type === 3) {
+    ack = (bytes[14] << 8) | bytes[15];
+  } else {
+    mode = bytes[14]; msgCount = bytes[15];
+  }
+  return { type, esn, ack, mode, msgCount };
+}
+
+// =====================================================================
+//  Two-slot bundle store + drop handlers.
+// =====================================================================
+const BUNDLES = { A: null, B: null };
+
+function makeEmpty() {
+  return { name: null, scenario: null, counters: null, telemetry: null, capture: null, screenshot: null };
+}
+
+function setupSlot(slotId) {
+  const el = document.getElementById('slot' + slotId);
+  el.addEventListener('dragover',  e => { e.preventDefault(); el.classList.add('dragover'); });
+  el.addEventListener('dragleave', e => { e.preventDefault(); el.classList.remove('dragover'); });
+  el.addEventListener('drop', async e => {
+    e.preventDefault(); el.classList.remove('dragover');
+    await ingestDataTransfer(e.dataTransfer, slotId);
+  });
+  el.querySelector('input[type=file]').addEventListener('change', ev => {
+    ingestFileList(ev.target.files, slotId);
+  });
+}
+setupSlot('A'); setupSlot('B');
+
+async function ingestDataTransfer(dt, slotId) {
+  const all = [];
+  let bundleName = null;
+  for (const item of dt.items) {
+    if (typeof item.webkitGetAsEntry === 'function') {
+      const entry = item.webkitGetAsEntry();
+      if (entry) {
+        if (entry.isDirectory && !bundleName) bundleName = entry.name;
+        await walkEntry(entry, all);
+      }
+    } else {
+      const file = item.getAsFile(); if (file) all.push(file);
+    }
+  }
+  ingestFileList(all, slotId, bundleName);
+}
+async function walkEntry(entry, accum) {
+  if (entry.isFile) {
+    await new Promise(res => entry.file(f => { accum.push(f); res(); }));
+  } else if (entry.isDirectory) {
+    const reader = entry.createReader();
+    const entries = await new Promise(res => reader.readEntries(res));
+    for (const e of entries) await walkEntry(e, accum);
+  }
+}
+
+async function ingestFileList(files, slotId, bundleName) {
+  const b = makeEmpty();
+  b.name = bundleName || ('bundle ' + slotId);
+  for (const f of files) {
+    const name = (f.name || '').toLowerCase();
+    if (name.endsWith('scenario.txt'))           b.scenario = await f.text();
+    else if (name.endsWith('final-counters.csv')) b.counters = parseCounters(await f.text());
+    else if (name.endsWith('telemetry.csv'))     b.telemetry = await f.text();
+    else if (name.endsWith('capture.dpdu') || name.endsWith('.dpdu'))
+      b.capture = parseCaptureStats(new Uint8Array(await f.arrayBuffer()));
+    else if (name.endsWith('dashboard.png') || name.endsWith('.png'))
+      b.screenshot = URL.createObjectURL(f);
+  }
+  BUNDLES[slotId] = b;
+  document.getElementById('label' + slotId).textContent = b.name;
+  document.getElementById('label' + slotId).classList.remove('empty');
+  render();
+}
+
+function parseCounters(csv) {
+  const out = {};
+  csv.split('\n').slice(1).forEach(line => {
+    line = line.trim(); if (!line) return;
+    const [k, v] = line.split(',');
+    if (k) out[k] = (Number.isFinite(+v) ? +v : v);
+  });
+  return out;
+}
+
+function parseCaptureStats(bytes) {
+  const stats = { v: null, total: 0, byType: {}, byDir: { TX: 0, RX: 0 }, frames: 0 };
+  if (bytes.length < 8 || bytes[0] !== 0x53 || bytes[1] !== 0x35
+      || bytes[2] !== 0x43 || bytes[3] !== 0x50) return stats;
+  stats.v = bytes[4];
+  const hashSize = stats.v === 2 ? 32 : 0;
+  let off = 8;
+  while (off < bytes.length) {
+    if (off + 8 > bytes.length) break;
+    const dir = bytes[off];
+    const len = (bytes[off+4] << 24) | (bytes[off+5] << 16) | (bytes[off+6] << 8) | bytes[off+7];
+    off += 8;
+    if (off + len + hashSize > bytes.length) break;
+    const pdu = parseDPdu(bytes.subarray(off, off + len));
+    if (pdu) {
+      const key = D_PDU_TYPE[pdu.type] || ('TYPE-' + pdu.type);
+      stats.byType[key] = (stats.byType[key] || 0) + 1;
+    }
+    stats.byDir[dir === 0 ? 'TX' : 'RX']++;
+    stats.total++;
+    off += len + hashSize;
+  }
+  return stats;
+}
+
+// =====================================================================
+//  Render — branches on whether B is loaded.
+// =====================================================================
+function render() {
+  const out = document.getElementById('output');
+  out.innerHTML = '';
+  const a = BUNDLES.A, b = BUNDLES.B;
+  if (!a && !b) return;
+  if (a && !b) {
+    renderSingle(out, a);
+  } else if (b && !a) {
+    renderSingle(out, b);
+  } else {
+    renderCompare(out, a, b);
+  }
+}
+
+function renderSingle(out, bundle) {
+  if (bundle.scenario)   out.appendChild(renderScenario(bundle.scenario, bundle.name));
+  if (bundle.counters)   out.appendChild(renderCountersPanel(bundle.counters));
+  if (bundle.capture)    out.appendChild(renderCapturePanel(bundle.capture));
+  if (bundle.telemetry)  out.appendChild(renderTelemetrySummary(bundle.telemetry));
+  if (bundle.screenshot) out.appendChild(renderScreenshot(bundle.screenshot));
+}
+
+function renderCompare(out, a, b) {
+  // Header summary + clipboard button.
+  const head = panel('Comparison');
+  const btn = document.createElement('button');
+  btn.className = 'clearbtn';
+  btn.textContent = '📋 Copy summary as markdown';
+  btn.addEventListener('click', () => copyComparisonAsMarkdown(a, b, btn));
+  head.querySelector('h2').appendChild(btn);
+  head.insertAdjacentHTML('beforeend',
+    `<p><span class="slotA-c">▰ A: ${escapeHtml(a.name)}</span> &nbsp; vs &nbsp; ` +
+    `<span class="slotB-c">▰ B: ${escapeHtml(b.name)}</span> &nbsp; (B − A deltas shown)</p>`);
+  out.appendChild(head);
+
+  // Counters side-by-side with delta column.
+  if (a.counters || b.counters) {
+    const c = panel('Final counters');
+    const ac = a.counters || {}, bc = b.counters || {};
+    const keys = Array.from(new Set([...Object.keys(ac), ...Object.keys(bc)])).sort();
+    const tbl = document.createElement('table');
+    tbl.innerHTML =
+      '<tr><th>Metric</th><th class="num slotA-c">A</th><th class="num slotB-c">B</th><th class="num">Δ (B−A)</th></tr>';
+    for (const k of keys) {
+      const av = ac[k], bv = bc[k];
+      const an = typeof av === 'number' ? av : 0;
+      const bn = typeof bv === 'number' ? bv : 0;
+      const d = bn - an;
+      const cls = d > 0 ? 'delta-up' : d < 0 ? 'delta-down' : 'delta-zero';
+      const sign = d > 0 ? '+' : '';
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${k}</td>` +
+        `<td class="num">${av ?? '—'}</td>` +
+        `<td class="num">${bv ?? '—'}</td>` +
+        `<td class="num ${cls}">${typeof av === 'number' && typeof bv === 'number' ? sign + d : '—'}</td>`;
+      tbl.appendChild(tr);
+    }
+    c.appendChild(tbl);
+    out.appendChild(c);
+  }
+
+  // Capture stats side-by-side.
+  if (a.capture || b.capture) {
+    const c = panel('Capture frame counts');
+    const ac = a.capture || { byType: {}, total: 0, byDir: { TX: 0, RX: 0 }, v: '—' };
+    const bc = b.capture || { byType: {}, total: 0, byDir: { TX: 0, RX: 0 }, v: '—' };
+    c.insertAdjacentHTML('beforeend',
+      `<p><span class="slotA-c">A: S5CP v${ac.v} ${ac.total} records (TX ${ac.byDir.TX} / RX ${ac.byDir.RX})</span><br>` +
+      `<span class="slotB-c">B: S5CP v${bc.v} ${bc.total} records (TX ${bc.byDir.TX} / RX ${bc.byDir.RX})</span></p>`);
+    const tbl = document.createElement('table');
+    tbl.innerHTML = '<tr><th>D_PDU type</th><th class="num slotA-c">A</th><th class="num slotB-c">B</th><th class="num">Δ</th></tr>';
+    const types = Array.from(new Set([...Object.keys(ac.byType), ...Object.keys(bc.byType)])).sort();
+    for (const t of types) {
+      const av = ac.byType[t] || 0, bv = bc.byType[t] || 0, d = bv - av;
+      const cls = d > 0 ? 'delta-up' : d < 0 ? 'delta-down' : 'delta-zero';
+      const sign = d > 0 ? '+' : '';
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${t}</td><td class="num">${av}</td><td class="num">${bv}</td><td class="num ${cls}">${sign}${d}</td>`;
+      tbl.appendChild(tr);
+    }
+    c.appendChild(tbl);
+    out.appendChild(c);
+  }
+
+  // Scenario diff (raw + step-by-step if both have scenarios).
+  if (a.scenario || b.scenario) {
+    out.appendChild(renderScenarioDiff(a.scenario, b.scenario));
+  }
+
+  // Side-by-side screenshots.
+  if (a.screenshot || b.screenshot) {
+    const c = panel('Dashboard screenshots');
+    const flex = document.createElement('div');
+    flex.style.display = 'flex'; flex.style.gap = '12px';
+    if (a.screenshot) {
+      const div = document.createElement('div'); div.style.flex = '1';
+      div.innerHTML = `<p class="slotA-c">A</p>`;
+      const img = document.createElement('img'); img.src = a.screenshot; img.className = 'screenshot';
+      div.appendChild(img); flex.appendChild(div);
+    }
+    if (b.screenshot) {
+      const div = document.createElement('div'); div.style.flex = '1';
+      div.innerHTML = `<p class="slotB-c">B</p>`;
+      const img = document.createElement('img'); img.src = b.screenshot; img.className = 'screenshot';
+      div.appendChild(img); flex.appendChild(div);
+    }
+    c.appendChild(flex);
+    out.appendChild(c);
+  }
+}
+
+// =====================================================================
+//  Sub-renderers (shared with single-bundle mode)
+// =====================================================================
+function renderScenario(text, name) {
+  const p = panel('Scenario — ' + (name || ''));
+  const lines = text.split('\n').filter(l => l && !l.startsWith('#'));
+  const steps = lines.map(l => {
+    const m = l.match(/^([\d.]+)s\s+(\w+)\s*(.*)$/);
+    return m ? { atSec: parseFloat(m[1]), kind: m[2], extra: m[3].trim() } : null;
+  }).filter(Boolean);
+  const tEnd = steps.reduce((m, s) => Math.max(m, s.atSec), 1);
+  const tl = document.createElement('div');
+  tl.className = 'timeline';
+  for (const s of steps) {
+    const pct = (s.atSec / tEnd) * 100;
+    const tick = document.createElement('div');
+    tick.className = 'step' + (s.kind === 'End' ? ' end' : '');
+    tick.style.left = pct + '%';
+    tl.appendChild(tick);
+    const lbl = document.createElement('div');
+    lbl.className = 'label';
+    lbl.style.left = pct + '%';
+    lbl.textContent = `${s.atSec}s ${s.kind} ${s.extra}`.trim();
+    tl.appendChild(lbl);
+  }
+  p.appendChild(tl);
+  const pre = document.createElement('pre'); pre.className = 'scenario'; pre.textContent = text;
+  p.appendChild(pre);
+  return p;
+}
+
+function renderScenarioDiff(textA, textB) {
+  const p = panel('Scenario diff');
+  if (!textA || !textB) {
+    p.insertAdjacentHTML('beforeend',
+      `<p class="empty">Only one bundle has scenario.txt — can't diff.</p>`);
+    return p;
+  }
+  if (textA === textB) {
+    p.insertAdjacentHTML('beforeend', `<p>Scenarios are byte-identical.</p>`);
+    return p;
+  }
+  const lA = textA.split('\n'), lB = textB.split('\n');
+  const max = Math.max(lA.length, lB.length);
+  const tbl = document.createElement('table');
+  tbl.innerHTML = '<tr><th>#</th><th class="slotA-c">A</th><th class="slotB-c">B</th></tr>';
+  for (let i = 0; i < max; i++) {
+    const a = lA[i] || '', b = lB[i] || '';
+    if (a === b) continue;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${i + 1}</td>` +
+      `<td>${escapeHtml(a)}</td>` +
+      `<td>${escapeHtml(b)}</td>`;
+    tbl.appendChild(tr);
+  }
+  p.appendChild(tbl);
+  return p;
+}
+
+function renderCountersPanel(counters) {
+  const p = panel('Final counters');
+  const tbl = document.createElement('table');
+  tbl.innerHTML = '<tr><th>Metric</th><th class="num">Value</th></tr>';
+  for (const [k, v] of Object.entries(counters)) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${k}</td><td class="num">${v}</td>`;
+    tbl.appendChild(tr);
+  }
+  p.appendChild(tbl);
+  return p;
+}
+
+function renderCapturePanel(stats) {
+  const p = panel('Capture (capture.dpdu)');
+  if (stats.v == null) {
+    p.appendChild(text('Not an S5CP file.', 'warn'));
+    return p;
+  }
+  p.insertAdjacentHTML('beforeend',
+    `<p>S5CP v${stats.v}, <strong>${stats.total}</strong> records (TX ${stats.byDir.TX} / RX ${stats.byDir.RX})</p>`);
+  const tbl = document.createElement('table');
+  tbl.innerHTML = '<tr><th>D_PDU Type</th><th class="num">Count</th></tr>';
+  for (const [k, v] of Object.entries(stats.byType)) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${k}</td><td class="num">${v}</td>`;
+    tbl.appendChild(tr);
+  }
+  p.appendChild(tbl);
+  return p;
+}
+
+function renderTelemetrySummary(csv) {
+  const p = panel('Telemetry (telemetry.csv)');
+  const lines = csv.split('\n').filter(Boolean);
+  const decisions = lines.filter(l => l.includes(',DECISION,')).length;
+  const snapshots = lines.filter(l => l.includes(',SNAPSHOT,')).length;
+  p.appendChild(text(`${lines.length - 1} rows total — ${decisions} DECISION, ${snapshots} SNAPSHOT`));
+  return p;
+}
+
+function renderScreenshot(url) {
+  const p = panel('Dashboard screenshot');
+  const img = document.createElement('img'); img.src = url; img.className = 'screenshot';
+  p.appendChild(img); return p;
+}
+
+// =====================================================================
+//  Clipboard summary export — emits a PR-pasteable markdown block.
+// =====================================================================
+function buildComparisonMarkdown(a, b) {
+  const lines = [];
+  lines.push(`### Chaos comparison — \`${a.name}\` vs \`${b.name}\``);
+  lines.push('');
+  lines.push('(deltas are B − A)');
+  lines.push('');
+
+  // Counters.
+  if (a.counters || b.counters) {
+    const ac = a.counters || {}, bc = b.counters || {};
+    const keys = Array.from(new Set([...Object.keys(ac), ...Object.keys(bc)])).sort();
+    lines.push('**Final counters**');
+    lines.push('');
+    lines.push('| Metric | A | B | Δ |');
+    lines.push('|---|---:|---:|---:|');
+    for (const k of keys) {
+      const av = ac[k], bv = bc[k];
+      const an = typeof av === 'number' ? av : null;
+      const bn = typeof bv === 'number' ? bv : null;
+      const dStr = (an !== null && bn !== null)
+        ? ((bn - an) > 0 ? '+' + (bn - an) : String(bn - an))
+        : '—';
+      lines.push(`| ${k} | ${av ?? '—'} | ${bv ?? '—'} | ${dStr} |`);
+    }
+    lines.push('');
+  }
+
+  // Capture frame counts.
+  if (a.capture || b.capture) {
+    const ac = a.capture || { byType: {}, total: 0, byDir: { TX: 0, RX: 0 }, v: '—' };
+    const bc = b.capture || { byType: {}, total: 0, byDir: { TX: 0, RX: 0 }, v: '—' };
+    lines.push('**Capture frame counts**');
+    lines.push('');
+    lines.push(`A: S5CP v${ac.v}, ${ac.total} records (TX ${ac.byDir.TX} / RX ${ac.byDir.RX})  `);
+    lines.push(`B: S5CP v${bc.v}, ${bc.total} records (TX ${bc.byDir.TX} / RX ${bc.byDir.RX})`);
+    lines.push('');
+    lines.push('| D_PDU type | A | B | Δ |');
+    lines.push('|---|---:|---:|---:|');
+    const types = Array.from(new Set([...Object.keys(ac.byType), ...Object.keys(bc.byType)])).sort();
+    for (const t of types) {
+      const av = ac.byType[t] || 0, bv = bc.byType[t] || 0, d = bv - av;
+      const sign = d > 0 ? '+' : '';
+      lines.push(`| ${t} | ${av} | ${bv} | ${sign}${d} |`);
+    }
+    lines.push('');
+  }
+
+  // Scenario diff (only lines that differ).
+  if (a.scenario && b.scenario && a.scenario !== b.scenario) {
+    const lA = a.scenario.split('\n'), lB = b.scenario.split('\n');
+    const max = Math.max(lA.length, lB.length);
+    lines.push('**Scenario diff**');
+    lines.push('');
+    lines.push('| # | A | B |');
+    lines.push('|---|---|---|');
+    for (let i = 0; i < max; i++) {
+      const lineA = lA[i] || '', lineB = lB[i] || '';
+      if (lineA === lineB) continue;
+      // Escape pipes inside cells so the markdown table doesn't break.
+      lines.push(`| ${i + 1} | ${lineA.replace(/\|/g, '\\|')} | ${lineB.replace(/\|/g, '\\|')} |`);
+    }
+    lines.push('');
+  } else if (a.scenario && b.scenario) {
+    lines.push('_Scenarios are byte-identical._');
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
+
+async function copyComparisonAsMarkdown(a, b, btn) {
+  const md = buildComparisonMarkdown(a, b);
+  const orig = btn.textContent;
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(md);
+    } else {
+      // Fallback for older browsers — synchronous textarea + execCommand.
+      const ta = document.createElement('textarea');
+      ta.value = md; document.body.appendChild(ta); ta.select();
+      document.execCommand('copy'); document.body.removeChild(ta);
+    }
+    btn.textContent = '✓ Copied!';
+  } catch (e) {
+    btn.textContent = '⚠ Copy failed';
+    console.error(e);
+  }
+  setTimeout(() => { btn.textContent = orig; }, 2000);
+}
+
+// ----- helpers -----
+function panel(title) {
+  const el = document.createElement('div');
+  el.className = 'panel';
+  el.innerHTML = `<h2>${escapeHtml(title)}</h2>`;
+  return el;
+}
+function text(s, cls) {
+  const t = document.createElement('p');
+  if (cls) t.innerHTML = `<span class="badge ${cls}">${escapeHtml(s)}</span>`;
+  else     t.textContent = s;
+  return t;
+}
+function escapeHtml(s) {
+  return (s == null ? '' : String(s))
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,115 @@
+# =====================================================================
+#  Grafana alert rule provisioning — three federation health rules
+#  derived from the playbook's red-state thresholds.
+#
+#  Provisioning docs: https://grafana.com/docs/grafana/latest/alerting/set-up/provision-alerting-resources/
+#
+#  The rules use the Prometheus datasource provisioned in
+#  grafana-datasources.yaml. Each rule fires after 'for' minutes of
+#  sustained breach so we don't page on transient spikes.
+# =====================================================================
+
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: federation-l16
+    folder: NATO C2
+    interval: 30s
+    rules:
+
+      - uid: nato-l16-ack-ratio-low
+        title: Federation ACK ratio low
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              datasource: { uid: prometheus, type: prometheus }
+              expr: nato_c2_l16_arq_acked / clamp_min(nato_c2_l16_arq_sent, 1)
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [0.8] }
+              refId: B
+        noDataState: NoData
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: Federation ACK ratio dropped below 80% for 5 minutes.
+          runbook_url: https://github.com/addgamestudios-ops/nato-c2-rts-hybrid/blob/main/docs/federation-playbook.md#2-sustained-high-srej-rx-from-one-peer
+        labels:
+          severity: warning
+          system: link16
+
+      - uid: nato-l16-fail-rate-high
+        title: ARQ delivery failures elevated
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              datasource: { uid: prometheus, type: prometheus }
+              expr: rate(nato_c2_l16_arq_failed[5m])
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [1.0] }
+              refId: B
+        noDataState: NoData
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: Sustained ARQ delivery failures > 1/sec for 5 minutes.
+          runbook_url: https://github.com/addgamestudios-ops/nato-c2-rts-hybrid/blob/main/docs/federation-playbook.md#2-sustained-high-srej-rx-from-one-peer
+        labels:
+          severity: critical
+          system: link16
+
+      - uid: nato-l16-outstanding-growing
+        title: ARQ outstanding queue growing
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 120, to: 0 }
+            datasourceUid: prometheus
+            model:
+              datasource: { uid: prometheus, type: prometheus }
+              expr: nato_c2_l16_arq_outstanding
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [200] }
+              refId: B
+        noDataState: NoData
+        execErrState: Error
+        for: 2m
+        annotations:
+          summary: ARQ outstanding queue > 200 envelopes for 2 minutes — receive backlog growing.
+          runbook_url: https://github.com/addgamestudios-ops/nato-c2-rts-hybrid/blob/main/docs/federation-playbook.md#3-gap-storm--gaps-jumping-for-multiple-peers
+        labels:
+          severity: warning
+          system: link16

@@ -91,7 +91,7 @@ namespace NATO.C2.UI
         private void Start()
         {
             _hub = FeedHub.Instance;
-            _tak = FindFirstObjectByType<TakServerCotAdapter>();
+            _tak = FindAnyObjectByType<TakServerCotAdapter>();
             _mgr = NATO_C2_Manager.Instance;
             if (_hub != null) _hub.OnCot += HandleCot;
         }
@@ -121,7 +121,13 @@ namespace NATO.C2.UI
                 return;
             }
 
-            if (!string.IsNullOrEmpty(ownPrefix) && ev.uid.StartsWith(ownPrefix)) return;
+            // Use the operator-specific prefix when available so two stations
+            // on the same TAK Server filter out their OWN echoes but DO see
+            // each other's requests (proper co-op behaviour).
+            string effectiveOwn = NATO.C2.Net.OperatorIdentity.Instance != null
+                ? NATO.C2.Net.OperatorIdentity.Instance.CotPrefix()
+                : ownPrefix;
+            if (!string.IsNullOrEmpty(effectiveOwn) && ev.uid.StartsWith(effectiveOwn)) return;
             if (_cards.ContainsKey(ev.uid)) return;
 
             bool isCFF     = ev.type != null && ev.type.StartsWith("b-r-f");

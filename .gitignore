@@ -65,5 +65,8 @@ Icon
 .env
 .env.local
 
+# Scenario private key — keep OUT of repo; back up separately.
+Tools/chaos-scenarios/scenarios-priv.xml
+
 # Don't commit generated OSM/satellite tile cache if you add one
 TileCache/

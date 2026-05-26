@@ -41,11 +41,36 @@ if ! git config user.email >/dev/null 2>&1; then
   git config user.name  "Alex"
 fi
 
+# ---------- clear stale .lock files if any are hanging around ----------
+# Common cause: a prior `git add` / `commit` / `push` was interrupted
+# (Cmd+C, Terminal closed, Editor quit) and left lock files behind.
+# Git creates locks under .git/index.lock, .git/HEAD.lock,
+# .git/refs/heads/*.lock, .git/packed-refs.lock, .git/config.lock, etc.
+# We only sweep them when no other git process is currently using this
+# repo — otherwise we'd race a live operation.
+if find .git -maxdepth 4 -name '*.lock' -print -quit 2>/dev/null | grep -q .; then
+  if ! pgrep -laf "git .*$REPO_DIR" >/dev/null 2>&1; then
+    echo "[git-setup] sweeping stale .git/*.lock files (no live git process):"
+    find .git -maxdepth 4 -name '*.lock' -print -delete
+  else
+    echo "[git-setup] WARNING: .git lock files present AND a git process is running."
+    echo "             Wait for it to finish or kill it before re-running."
+  fi
+fi
+
 # ---------- commit anything new ----------
+# We use `set -e` semantics here defensively — if `git add` fails, don't
+# bail-through to the push step (which would push stale state).
 if [ -n "$(git status --porcelain)" ]; then
   echo "[git-setup] staging files…"
-  git add -A
-  git commit -m "$(date +'%Y-%m-%d') — NATO C2 RTS Hybrid checkpoint"
+  if ! git add -A; then
+    echo "[git-setup] FATAL: git add failed — see message above." >&2
+    exit 1
+  fi
+  if ! git commit -m "$(date +'%Y-%m-%d') — NATO C2 RTS Hybrid checkpoint"; then
+    echo "[git-setup] FATAL: git commit failed." >&2
+    exit 1
+  fi
 else
   echo "[git-setup] working tree clean — nothing to commit"
 fi

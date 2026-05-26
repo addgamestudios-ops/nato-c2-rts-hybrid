@@ -34,6 +34,12 @@ namespace NATO.C2.EditorTools.Mcp
     {
         private const int Port = 7400;
         private const int ConsoleBufferSize = 256;
+        // Token gate — if NATO_MCP_TOKEN is set, requests without a
+        // matching Authorization: Bearer header are 403'd. Keeps a
+        // co-tenant process on the same machine from driving the Editor
+        // over loopback.
+        private static readonly string ExpectedToken =
+            System.Environment.GetEnvironmentVariable("NATO_MCP_TOKEN") ?? "";
 
         private static HttpListener _listener;
         private static Thread _serverThread;
@@ -47,6 +53,23 @@ namespace NATO.C2.EditorTools.Mcp
             EditorApplication.quitting += StopServer;
             AssemblyReloadEvents.beforeAssemblyReload += StopServer;
             StartServer();
+        }
+
+        // =================================================================
+        //  Menu actions — operator triage paths
+        // =================================================================
+        [MenuItem("NATO C2/MCP Bridge/Restart")]
+        public static void MenuRestart()
+        {
+            StopServer();
+            StartServer();
+        }
+
+        [MenuItem("NATO C2/MCP Bridge/Status")]
+        public static void MenuStatus()
+        {
+            bool listening = _listener != null && _listener.IsListening;
+            Debug.Log($"[UnityMcpBridge] status: listening={listening}  port={Port}  buffer={_consoleBuffer.Count}/{ConsoleBufferSize}");
         }
 
         // =================================================================
@@ -94,6 +117,29 @@ namespace NATO.C2.EditorTools.Mcp
                 catch { break; }
                 if (ctx == null) continue;
 
+                // ---- Token gate (when configured) ----
+                if (!string.IsNullOrEmpty(ExpectedToken))
+                {
+                    string auth = ctx.Request.Headers["Authorization"] ?? "";
+                    const string prefix = "Bearer ";
+                    string presented = auth.StartsWith(prefix, StringComparison.Ordinal)
+                        ? auth.Substring(prefix.Length) : "";
+                    if (!ConstantTimeEquals(presented, ExpectedToken))
+                    {
+                        try
+                        {
+                            var msg = Encoding.UTF8.GetBytes("{\"error\":\"unauthorized\"}");
+                            ctx.Response.StatusCode = 403;
+                            ctx.Response.ContentType = "application/json";
+                            ctx.Response.ContentLength64 = msg.Length;
+                            ctx.Response.OutputStream.Write(msg, 0, msg.Length);
+                            ctx.Response.OutputStream.Close();
+                        }
+                        catch { /* client gone */ }
+                        continue;
+                    }
+                }
+
                 string body = "";
                 try
                 {
@@ -104,6 +150,17 @@ namespace NATO.C2.EditorTools.Mcp
 
                 HandleRequest(body, ctx.Response);
             }
+        }
+
+        // Constant-time string compare so a co-tenant can't time the
+        // first-byte-difference and recover the token bit by bit.
+        private static bool ConstantTimeEquals(string a, string b)
+        {
+            if (a == null || b == null) return false;
+            if (a.Length != b.Length) return false;
+            int diff = 0;
+            for (int i = 0; i < a.Length; i++) diff |= a[i] ^ b[i];
+            return diff == 0;
         }
 
         private static void HandleRequest(string body, HttpListenerResponse resp)
@@ -165,7 +222,9 @@ namespace NATO.C2.EditorTools.Mcp
         //  this function are safe because Dispatch is invoked from the
         //  main-thread queue.
         // =================================================================
-        [Serializable] private class RpcRequest { public string method; }
+        [Serializable] private class RpcRequest    { public string method; }
+        [Serializable] private class RpcChaosArgs  { public string scenario; }
+        [Serializable] private class RpcChaosOuter { public RpcChaosArgs @params; }
 
         private static string Dispatch(string body)
         {
@@ -220,8 +279,74 @@ namespace NATO.C2.EditorTools.Mcp
                 case "package.reimportSample":
                     return ReimportNatoSample();
 
+                case "chaos.run":
+                    return RunChaosScenario(body);
+
+                case "chaos.status":
+                    return ChaosStatus();
+
+                case "instance.name":
+                    return "{\"name\":\"" + EscapeJson(
+                        System.Environment.GetEnvironmentVariable("NATO_MCP_INSTANCE_NAME") ?? "") + "\"}";
+
                 default:
                     return JsonError("unknown method: " + req.method);
+            }
+        }
+
+        private static string ChaosStatus()
+        {
+            var sb = new StringBuilder("{");
+            sb.Append("\"running\":").Append(NATO.C2.EditorTools.FederationChaosMode.IsRunning ? "true" : "false");
+            sb.Append(",\"scenario\":\"").Append(EscapeJson(NATO.C2.EditorTools.FederationChaosMode.CurrentScenarioName ?? "")).Append('"');
+            sb.Append(",\"lastBundleDir\":\"").Append(EscapeJson(NATO.C2.EditorTools.FederationChaosMode.LastBundleDir ?? "")).Append('"');
+            sb.Append(",\"lastZipLogPath\":\"").Append(EscapeJson(NATO.C2.EditorTools.FederationChaosMode.LastZipLogPath ?? "")).Append('"');
+            sb.Append(",\"startedAt\":").Append(NATO.C2.EditorTools.FederationChaosMode.LastStartedAtRealtime.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            sb.Append(",\"finishedAt\":").Append(NATO.C2.EditorTools.FederationChaosMode.LastFinishedAtRealtime.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            sb.Append("}");
+            return sb.ToString();
+        }
+
+        // =================================================================
+        //  chaos.run — load + execute a scenario by name from
+        //  Tools/chaos-scenarios/{name}.json. Refuses if Unity isn't in
+        //  Play mode (the simulator only publishes envelopes during Play).
+        // =================================================================
+        private static string RunChaosScenario(string rawBody)
+        {
+            try
+            {
+                if (!EditorApplication.isPlaying)
+                    return JsonError("not in play mode — call editor.play first");
+
+                var outer = JsonUtility.FromJson<RpcChaosOuter>(rawBody);
+                string scenario = outer?.@params?.scenario;
+                if (string.IsNullOrEmpty(scenario))
+                    return JsonError("missing 'scenario' parameter");
+
+                // Find the JSON file.
+                string scenariosDir = NATO.C2.EditorTools.FederationChaosMode.ScenariosDir;
+                string jsonPath = System.IO.Path.Combine(scenariosDir, scenario + ".json");
+                if (!System.IO.File.Exists(jsonPath))
+                    return JsonError("scenario not found: " + jsonPath);
+
+                // Open the chaos-mode window, load the scenario, and start the run.
+                var w = EditorWindow.GetWindow<NATO.C2.EditorTools.FederationChaosMode>();
+                w.LoadScenarioFromFile(jsonPath);
+                // The window exposes a Run() public method — invoke via reflection so we
+                // don't need to break the existing public surface.
+                var run = typeof(NATO.C2.EditorTools.FederationChaosMode)
+                    .GetMethod("StartRun",
+                        System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                if (run == null) return JsonError("StartRun() not found via reflection");
+                run.Invoke(w, null);
+
+                return "{\"ok\":true,\"scenario\":\"" + EscapeJson(scenario) +
+                       "\",\"note\":\"run started; bundle path will be logged at end via Editor console\"}";
+            }
+            catch (Exception ex)
+            {
+                return JsonError("chaos.run failed: " + ex.Message);
             }
         }
 

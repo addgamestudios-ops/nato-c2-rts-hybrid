@@ -1,0 +1,72 @@
+# =====================================================================
+#  NATO C2 RTS Hybrid — Grafana observability stack
+#  ---------------------------------------------------------------------
+#  One-command local stack: OTel Collector → Prometheus → Grafana with
+#  the federation-l16 dashboard auto-provisioned. The Unity-side
+#  Link16OtlpExporter pushes here by default (OTLP/HTTP on :4318).
+#
+#  Usage:
+#      cd Tools/grafana
+#      docker compose up
+#
+#  Then:
+#      • Grafana UI:    http://localhost:3000  (admin / admin)
+#      • OTLP ingest:   http://localhost:4318/v1/metrics
+#      • Prometheus:    http://localhost:9090
+#
+#  Shut down with Ctrl+C. State is kept in named volumes so a restart
+#  resumes where you left off. `docker compose down -v` wipes all data.
+# =====================================================================
+
+services:
+
+  otel-collector:
+    image: otel/opentelemetry-collector:0.95.0
+    container_name: nato-otel
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./provisioning/otel-config.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4317:4317"     # OTLP gRPC
+      - "4318:4318"     # OTLP HTTP (Link16OtlpExporter targets this)
+      - "8889:8889"     # Prometheus exporter scrape endpoint
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.51.2
+    container_name: nato-prometheus
+    volumes:
+      - ./provisioning/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    depends_on:
+      - otel-collector
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:10.4.2
+    container_name: nato-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER:     admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP:     "false"
+      GF_AUTH_ANONYMOUS_ENABLED:  "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./provisioning/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
+      - ./provisioning/grafana-dashboards.yaml:/etc/grafana/provisioning/dashboards/dashboards.yaml:ro
+      - ./provisioning/alert-rules.yaml:/etc/grafana/provisioning/alerting/alert-rules.yaml:ro
+      - ./provisioning/contact-points.yaml:/etc/grafana/provisioning/alerting/contact-points.yaml:ro
+      - ./provisioning/notification-policies.yaml:/etc/grafana/provisioning/alerting/notification-policies.yaml:ro
+      - ./federation-l16.json:/var/lib/grafana/dashboards/federation-l16.json:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+volumes:
+  prometheus-data:
+  grafana-data:

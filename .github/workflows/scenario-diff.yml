@@ -1,0 +1,94 @@
+# =====================================================================
+#  NATO C2 RTS Hybrid — Scenario diff PR comment
+#  ---------------------------------------------------------------------
+#  Detects edited chaos scenario JSONs in a PR and posts a markdown
+#  diff comment showing the behavioural change (step-by-step before/
+#  after) instead of leaving reviewers to parse raw JSON.
+#
+#  The comment is upserted (created once, then edited on every push) so
+#  the PR thread stays clean.
+# =====================================================================
+
+name: Scenario Diff
+
+on:
+  pull_request:
+    paths:
+      - 'Tools/chaos-scenarios/*.json'
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  diff:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect edited scenarios + build comment
+        id: build
+        shell: bash
+        run: |
+          set -uo pipefail
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+
+          # All edited scenario JSONs in this PR.
+          edited=$(git diff --name-only "${base}" "${head}" -- 'Tools/chaos-scenarios/*.json' | sort -u)
+          if [ -z "${edited}" ]; then
+            echo "no scenario changes — skipping"
+            echo "skip=1" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          out="/tmp/scenario-diff.md"
+          : > "${out}"
+          echo "<!-- nato-scenario-diff -->" >> "${out}"
+          echo "## 📜 Chaos scenario changes" >> "${out}"
+          echo "" >> "${out}"
+          echo "Edited scenario(s): \`$(echo "${edited}" | xargs)\`" >> "${out}"
+          echo "" >> "${out}"
+
+          tmp_base=$(mktemp)
+          tmp_head=$(mktemp)
+          for f in ${edited}; do
+            # Base version (may not exist if the file is new in this PR).
+            if git show "${base}:${f}" > "${tmp_base}" 2>/dev/null; then base_arg="${tmp_base}"; else base_arg="/dev/null"; fi
+            # Head version (may not exist if file was deleted in this PR).
+            if git show "${head}:${f}" > "${tmp_head}" 2>/dev/null; then head_arg="${tmp_head}"; else head_arg="/dev/null"; fi
+            name=$(basename "${f}")
+            python3 Tools/scenario-diff.py "${base_arg}" "${head_arg}" --name "${name}" >> "${out}"
+            echo "" >> "${out}"
+            echo "---" >> "${out}"
+            echo "" >> "${out}"
+          done
+          rm -f "${tmp_base}" "${tmp_head}"
+
+          # Persist for the comment-poster step.
+          {
+            echo "body<<EOF"
+            cat "${out}"
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Find existing scenario-diff comment
+        if: steps.build.outputs.skip != '1'
+        id: find
+        uses: peter-evans/find-comment@v3
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-author: 'github-actions[bot]'
+          body-includes: '<!-- nato-scenario-diff -->'
+
+      - name: Upsert PR comment
+        if: steps.build.outputs.skip != '1'
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          comment-id: ${{ steps.find.outputs.comment-id }}
+          issue-number: ${{ github.event.pull_request.number }}
+          body: ${{ steps.build.outputs.body }}
+          edit-mode: replace

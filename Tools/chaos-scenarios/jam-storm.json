@@ -1,0 +1,12 @@
+{
+  "name": "jam-storm",
+  "description": "Aggressive multi-stage jamming: ramp to 80%, hold, then sustained 95% before recovery.",
+  "steps": [
+    { "atSec":  0.0, "kind": "SetDropRate", "valueFloat":  0.0, "valueText": "" },
+    { "atSec":  5.0, "kind": "SetDropRate", "valueFloat": 50.0, "valueText": "" },
+    { "atSec": 10.0, "kind": "SetDropRate", "valueFloat": 80.0, "valueText": "" },
+    { "atSec": 20.0, "kind": "SetDropRate", "valueFloat": 95.0, "valueText": "" },
+    { "atSec": 30.0, "kind": "SetDropRate", "valueFloat":  0.0, "valueText": "" },
+    { "atSec": 40.0, "kind": "End",         "valueFloat":  0.0, "valueText": "" }
+  ]
+}

@@ -87,7 +87,11 @@ namespace NATO.C2.Sample
                 typeof(AIAutonomousMode),
                 typeof(EngagementTracker),
                 typeof(FeedHub),
-                typeof(LocalSimFeed));
+                typeof(LocalSimFeed),
+                typeof(OperatorIdentity),
+                typeof(Link16TdmaSimulator),
+                typeof(CotSigner),
+                typeof(OperatorPresenceBroadcaster));
             var hpa = go.GetComponent<HPAStar>();
             hpa.worldSize   = worldSize;
             hpa.worldOrigin = new Vector2(-worldSize.x * 0.5f, -worldSize.y * 0.5f);
@@ -299,7 +303,7 @@ namespace NATO.C2.Sample
             scaler.referenceResolution = new Vector2(1920, 1080);
             scaler.matchWidthOrHeight = 0.5f;
 
-            if (FindFirstObjectByType<UnityEngine.EventSystems.EventSystem>() == null)
+            if (FindAnyObjectByType<UnityEngine.EventSystems.EventSystem>() == null)
             {
                 new GameObject("EventSystem",
                     typeof(UnityEngine.EventSystems.EventSystem),

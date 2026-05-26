@@ -1,0 +1,12 @@
+{
+  "name": "restart-resync",
+  "description": "Simulates a peer restart: high drops + peer drop simultaneously, then peer restored. Tests ESN re-sync detection (>16 distance).",
+  "steps": [
+    { "atSec":  0.0, "kind": "SetDropRate", "valueFloat":  0.0, "valueText": ""    },
+    { "atSec":  5.0, "kind": "SetDropRate", "valueFloat": 70.0, "valueText": ""    },
+    { "atSec":  5.0, "kind": "PeerDrop",    "valueFloat":  0.0, "valueText": "F3"  },
+    { "atSec": 35.0, "kind": "PeerRestore", "valueFloat":  0.0, "valueText": "F3"  },
+    { "atSec": 35.0, "kind": "SetDropRate", "valueFloat":  0.0, "valueText": ""    },
+    { "atSec": 45.0, "kind": "End",         "valueFloat":  0.0, "valueText": ""    }
+  ]
+}

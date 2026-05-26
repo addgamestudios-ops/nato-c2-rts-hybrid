@@ -1,0 +1,51 @@
+# =====================================================================
+#  Grafana contact points — alert delivery destinations.
+#
+#  TEMPLATE: the Slack webhook is COMMENTED OUT by default so the
+#  compose stack starts cleanly without a real webhook URL.
+#
+#  To enable Slack delivery:
+#     1. Create an incoming webhook in your Slack workspace:
+#        https://api.slack.com/messaging/webhooks
+#     2. Uncomment the `nato-l16-slack` contactPoint below and paste
+#        the URL into the `url:` field.
+#     3. Open notification-policies.yaml in the same directory and
+#        change the root receiver from "grafana-default-email" to
+#        "nato-l16-slack".
+#     4. `docker compose restart grafana`.
+#
+#  The default-email contact ships disabled — leaving it as the root
+#  receiver simply drops fired alerts until you switch to Slack. The
+#  alert RULES still fire and are visible in Grafana's Alert state
+#  view; only the notification step is no-op.
+# =====================================================================
+
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: grafana-default-email
+    receivers:
+      - uid: default-email
+        type: email
+        settings:
+          addresses: change-me@example.com
+          singleEmail: false
+        disableResolveMessage: false
+
+  # ---------------------------------------------------------------
+  # Uncomment to enable Slack delivery. Paste your webhook URL into
+  # `url:` and ALSO switch the policy in notification-policies.yaml.
+  # ---------------------------------------------------------------
+  # - orgId: 1
+  #   name: nato-l16-slack
+  #   receivers:
+  #     - uid: nato-l16-slack-webhook
+  #       type: slack
+  #       settings:
+  #         url: https://hooks.slack.com/services/T000/B000/XXXX
+  #         recipient: '#federation-ops'
+  #         username: NATO C2 L16 Alerts
+  #         title: '{{ template "default.title" . }}'
+  #         text:  '{{ template "default.message" . }}'
+  #       disableResolveMessage: false
