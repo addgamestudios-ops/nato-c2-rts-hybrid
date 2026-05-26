@@ -5,6 +5,13 @@ standards (APP-6E symbology, MIL-STD-2525E, TAK Server CoT interop) —
 the visual / interaction grammar of Anduril Lattice + Project Maven on
 top of a real-time tactical simulation.
 
+> **What "C2" actually means** — Command and Control. See
+> [`docs/nato-c2-doctrine.md`](docs/nato-c2-doctrine.md) for the
+> authoritative definitions, the C3 (Consultation, Command, Control)
+> framework, the C4ISR / MDC2 / CJADC2 variations, and how each maps
+> onto this codebase. New UX copy and class names should align to that
+> reference rather than coining new terms.
+
 ## What's in here
 
 | Layer | Tech |
