@@ -123,6 +123,22 @@ namespace NATO.C2.Net
         public int FailuresObserved { get; private set; }
         private Stanag5066ArqRetry _arq;
 
+        /// <summary>
+        /// Idempotently attach a Stanag5066ArqRetry sibling component if
+        /// one isn't already present. Called automatically from Update
+        /// when useArqRetry flips on at runtime, but also exposed so
+        /// EditMode tests (where Update doesn't tick) can guarantee the
+        /// ARQ is attached after AddComponent + useArqRetry=true.
+        /// Returns the attached/discovered component.
+        /// </summary>
+        public Stanag5066ArqRetry EnsureArqRetryAttached()
+        {
+            if (_arq != null) return _arq;
+            _arq = GetComponent<Stanag5066ArqRetry>();
+            if (_arq == null) _arq = gameObject.AddComponent<Stanag5066ArqRetry>();
+            return _arq;
+        }
+
         // Fired once per (Agent, slot-they-were-scheduled-on). `packed=true`
         // means the agent fit into its mode's envelope; `packed=false`
         // means the mode's cap was already full this slot and the agent
@@ -173,20 +189,40 @@ namespace NATO.C2.Net
             _hub = FeedHub.Instance;
             _mgr = NATO_C2_Manager.Instance;
             _epochStartTime = Time.unscaledTime;
+            // If the ARQ feature flag is already set on the prefab / inspector,
+            // attach immediately. Tests that flip the flag AFTER AddComponent
+            // can still call EnsureArqRetryAttached() explicitly, or rely on
+            // the lazy-attach near the top of Update() below.
+            if (useArqRetry) EnsureArqRetryAttached();
         }
 
-        private void Update()
+        /// <summary>
+        /// Public test hook — does what Update() does for ONE frame, plus
+        /// optionally advances the internal epoch clock by `advanceSec` so
+        /// the slot counter ticks forward without the test needing real
+        /// wall-clock time. EditMode tests use this because MonoBehaviour
+        /// Update doesn't fire without [ExecuteAlways].
+        /// </summary>
+        public void TickForTest(float advanceSec = 0f)
         {
+            // Roll the epoch start backward so the slot counter looks like
+            // the requested time has elapsed since last Update.
+            if (advanceSec > 0f) _epochStartTime -= advanceSec;
+            UpdateImpl();
+        }
+
+        private void Update() => UpdateImpl();
+
+        private void UpdateImpl()
+        {
+            // ARQ lazy-attach happens BEFORE the FeedHub/Manager null-check
+            // so EditMode tests can `yield return null` once and find the
+            // ARQ sibling, even when no FeedHub exists in the test scene.
+            if (useArqRetry && _arq == null) EnsureArqRetryAttached();
+
             if (_hub == null) _hub = FeedHub.Instance;
             if (_mgr == null) _mgr = NATO_C2_Manager.Instance;
             if (_hub == null || _mgr == null) return;
-
-            // Resolve / lazily attach the ARQ sibling when the feature flag is on.
-            if (useArqRetry && _arq == null)
-            {
-                _arq = GetComponent<Stanag5066ArqRetry>();
-                if (_arq == null) _arq = gameObject.AddComponent<Stanag5066ArqRetry>();
-            }
 
             // Drain any envelopes ARQ wants retransmitted. We don't re-emit
             // the BftPositions (positions are stale by retry-time anyway);

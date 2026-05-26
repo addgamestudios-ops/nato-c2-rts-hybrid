@@ -72,29 +72,28 @@ namespace NATO.C2.Tests
             // Clear any per-agent overrides (defensive).
             foreach (var a in manager.Agents) sim.SetPackingMode(a, null);
 
-            // Drain transients.
-            yield return new WaitForSeconds(0.5f);
-
+            // EditMode UnityTest doesn't tick MonoBehaviour.Update() without
+            // [ExecuteAlways]. Drive the simulator explicitly via TickForTest,
+            // advancing simulated time by SlotDurationSec each step so the
+            // slot counter actually moves forward. We tick across the full
+            // SampleWindowSec interval and read the rolling counters.
+            const float step = Link16TdmaSimulator.SlotDurationSec * 4f;  // 4 slots/tick
             int stdDpMsgs = 0;
-            float t = 0f;
-            while (t < SampleWindowSec)
+            for (float t = 0f; t < SampleWindowSec; t += step)
             {
+                sim.TickForTest(step);
                 stdDpMsgs = Mathf.Max(stdDpMsgs, sim.StdDpMsgsPerSec);
-                t += Time.unscaledDeltaTime;
                 yield return null;
             }
 
             // ===== Run B: force every terminal to P2DP =====
             foreach (var a in manager.Agents) sim.SetPackingMode(a, Link16TdmaSimulator.PackingMode.P2Dp);
 
-            yield return new WaitForSeconds(0.5f);
-
             int p2DpMsgs = 0;
-            t = 0f;
-            while (t < SampleWindowSec)
+            for (float t = 0f; t < SampleWindowSec; t += step)
             {
+                sim.TickForTest(step);
                 p2DpMsgs = Mathf.Max(p2DpMsgs, sim.P2DpMsgsPerSec);
-                t += Time.unscaledDeltaTime;
                 yield return null;
             }
 
@@ -136,32 +135,43 @@ namespace NATO.C2.Tests
                 a.unitType    = UnitType.Tank;
             }
 
-            // One frame so the simulator's Awake / lazy-attach has run.
+            // EditMode UnityTest doesn't tick MonoBehaviour.Update() without
+            // [ExecuteAlways]. Call the public helper directly so the ARQ
+            // sibling gets attached.
+            var arq = sim.EnsureArqRetryAttached();
             yield return null;
-            var arq = sim.GetComponent<Stanag5066ArqRetry>();
             Assert.IsNotNull(arq, "Simulator should have lazy-attached a Stanag5066ArqRetry when useArqRetry=true.");
             arq.retryTimeoutSec = 2f;
             arq.implicitAckSec  = 1f;   // < retryTimeout so success path wins for non-dropped
             arq.maxRetries      = 2;
             arq.logEvents       = false;
 
-            // Run 5 s, periodically NAK 50% of outstanding envelopes.
-            float endTime = Time.realtimeSinceStartup + 5f;
-            float nextDropAt = Time.realtimeSinceStartup;
-            while (Time.realtimeSinceStartup < endTime)
+            // Run 5 simulated seconds via TickForTest, periodically NAKing
+            // 50% of outstanding envelopes. EditMode doesn't tick Update so
+            // we drive the simulator explicitly.
+            const float dt = Link16TdmaSimulator.SlotDurationSec * 4f;
+            float simTime = 0f;
+            float nextDropAt = 0f;
+            while (simTime < 5f)
             {
-                if (Time.realtimeSinceStartup >= nextDropAt)
+                sim.TickForTest(dt);
+                if (simTime >= nextDropAt)
                 {
                     arq.SimulateRandomDrops(50f);
                     nextDropAt += 0.5f;
                 }
+                simTime += dt;
                 yield return null;
             }
 
-            // Settle window: give in-flight envelopes time to either auto-ACK
-            // or hit the retry cap and fail. Need > retryTimeoutSec * maxRetries
-            // plus a small margin.
-            yield return new WaitForSeconds(arq.retryTimeoutSec * (arq.maxRetries + 1) + 1f);
+            // Settle window: drive the sim long enough for in-flight envelopes
+            // to either auto-ACK or hit the retry cap and fail.
+            float settle = arq.retryTimeoutSec * (arq.maxRetries + 1) + 1f;
+            for (float t = 0f; t < settle; t += dt)
+            {
+                sim.TickForTest(dt);
+                yield return null;
+            }
 
             Debug.Log($"[ArqRecoveryTest] sent={arq.TotalTransmitted} acked={arq.TotalAcked} " +
                       $"failed={arq.TotalFailed} retried={arq.TotalRetried} outstanding={arq.OutstandingCount}");

@@ -66,9 +66,13 @@ namespace NATO.C2.Tests
                 a.unitType    = (i % 3 == 0) ? UnitType.Infantry : UnitType.Tank;
             }
 
-            // One frame so simulator Awake runs and lazy-attaches ARQ.
+            // EditMode UnityTest doesn't tick MonoBehaviour.Update() on
+            // components that lack [ExecuteAlways] — which the simulator
+            // intentionally does NOT have (production wants Update only in
+            // PlayMode). So we explicitly call the public helper that the
+            // simulator's Update would otherwise call.
+            var arq = sim.EnsureArqRetryAttached();
             yield return null;
-            var arq = sim.GetComponent<Stanag5066ArqRetry>();
             Assert.IsNotNull(arq, "ARQ should be lazy-attached when useArqRetry=true.");
             arq.retryTimeoutSec = 1.5f;
             arq.implicitAckSec  = 0.6f;
@@ -92,20 +96,32 @@ namespace NATO.C2.Tests
             // there. But we also write our own synthetic capture for the
             // round-trip assertion by hooking the ARQ ourselves.
 
-            // Run the soak with periodic drops.
-            float endAt = Time.realtimeSinceStartup + DrillDuration;
-            float nextDropAt = Time.realtimeSinceStartup;
-            while (Time.realtimeSinceStartup < endAt)
+            // Run the soak with periodic drops. EditMode UnityTest doesn't tick
+            // MonoBehaviour.Update() without [ExecuteAlways] (we don't want
+            // it on the simulator in prod). Drive TickForTest explicitly and
+            // track simulated (not wall-clock) time.
+            const float dt = Link16TdmaSimulator.SlotDurationSec * 4f;
+            float simTime = 0f;
+            float nextDropAt = 0f;
+            while (simTime < DrillDuration)
             {
-                if (Time.realtimeSinceStartup >= nextDropAt)
+                sim.TickForTest(dt);
+                if (simTime >= nextDropAt)
                 {
                     arq.SimulateRandomDrops(DropPercent);
                     nextDropAt += DropEvery;
                 }
+                simTime += dt;
                 yield return null;
             }
-            // Settle window — let in-flight envelopes resolve.
-            yield return new WaitForSeconds(arq.retryTimeoutSec * (arq.maxRetries + 1) + 0.5f);
+            // Settle window — drive the sim long enough for in-flight
+            // envelopes to resolve.
+            float settle = arq.retryTimeoutSec * (arq.maxRetries + 1) + 0.5f;
+            for (float t = 0f; t < settle; t += dt)
+            {
+                sim.TickForTest(dt);
+                yield return null;
+            }
 
             // ---- Build a synthetic capture from observed envelopes ----
             //

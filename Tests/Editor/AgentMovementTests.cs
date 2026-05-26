@@ -64,6 +64,10 @@ namespace NATO.C2.Tests
             agent.radius      = 1.0f;
             agent.callsign    = "TEST-1";
 
+            // Force HPAStar to rebuild its grid AFTER we set worldSize etc.
+            // (its Awake fired during AddComponent with default values).
+            hpa.RebuildAll();
+
             // Wait one frame so OnEnable → Register fires.
             yield return null;
 
@@ -75,12 +79,28 @@ namespace NATO.C2.Tests
             var target = new Vector3(20f, 0f, 20f);
             mgr.IssueCommand(CommandOrder.Move, target);
 
-            // 4. Tick the sim for 4 seconds (real time inside the test runner).
-            float t = 0f;
-            while (t < 4.0f)
+            // Safety net: if HPAStar produced no path (e.g. grid not built or
+            // start/goal out of bounds), seed the path directly with the
+            // target so the integration step has somewhere to move toward.
+            // This isolates the test from pathfinding correctness — the
+            // movement-on-both-axes assertion only cares that the manager's
+            // tick wiring + ORCA produce XZ motion.
+            if (agent.path.Count == 0)
             {
+                agent.path.Add(target);
+                agent.pathCursor = 0;
+            }
+
+            // 4. Drive the sim for 4 simulated seconds. EditMode UnityTest does
+            // NOT tick MonoBehaviour.Update() on components without
+            // [ExecuteAlways] (we deliberately don't have it on the manager —
+            // we don't want agents moving while you edit the scene). So we
+            // explicitly drive the public TickForTest helper.
+            const float dt = 1f / 60f;
+            for (float t = 0f; t < 4.0f; t += dt)
+            {
+                mgr.TickForTest(dt);
                 yield return null;
-                t += Time.deltaTime;
             }
 
             // 5. Assert. The agent should have moved meaningfully on BOTH

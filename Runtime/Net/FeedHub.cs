@@ -27,7 +27,30 @@ namespace NATO.C2.Net
     [AddComponentMenu("NATO C2/Feed Hub")]
     public class FeedHub : MonoBehaviour
     {
-        public static FeedHub Instance { get; private set; }
+        // Lazy Instance — same shape as NATO_C2_Manager.Instance. The static
+        // is set in Awake on the live hub, but EditMode tests (and play-mode
+        // restarts) can hit the getter before that. We fall back to
+        // FindAnyObjectByType first, then auto-create a hidden hub if
+        // nothing exists yet — that way Link16TdmaSimulator.Update() and
+        // any other consumer can rely on Instance being non-null in any
+        // context (production, EditMode tests, isolated PlayMode tests).
+        private static FeedHub _instance;
+        public static FeedHub Instance
+        {
+            get
+            {
+                if (_instance != null) return _instance;
+                _instance = UnityEngine.Object.FindAnyObjectByType<FeedHub>();
+                if (_instance != null) return _instance;
+                // No FeedHub in scene — create one. HideAndDontSave keeps it
+                // out of the user's hierarchy and the test's GameObject sweep.
+                var go = new GameObject("FeedHub (auto)");
+                go.hideFlags = HideFlags.HideAndDontSave;
+                _instance = go.AddComponent<FeedHub>();
+                return _instance;
+            }
+            private set { _instance = value; }
+        }
 
         public event Action<BftPosition>  OnBft;
         public event Action<RadarTrack>   OnRadar;
