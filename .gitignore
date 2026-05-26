@@ -1,0 +1,69 @@
+# =====================================================================
+#  NATO C2 RTS Hybrid — .gitignore
+#  ---------------------------------------------------------------------
+#  Excludes Unity's regenerable caches + macOS / IDE noise.  Modeled on
+#  the official Unity .gitignore (github.com/github/gitignore/Unity).
+# =====================================================================
+
+# Unity regenerates these from Assets/ + Packages/manifest.json
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+
+# Asset meta files for empty folders or generated assets — keep package
+# meta files only.
+Assets/AssetStoreTools*
+
+# Visual Studio / Rider / VS Code caches
+.vs/
+.vscode/
+.idea/
+*.csproj
+*.unityproj
+*.sln
+*.suo
+*.tmp
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+# Unity3D-generated meta files for build outputs
+*.apk
+*.aab
+*.ipa
+*.unitypackage
+*.app
+
+# Crashlytics / FB SDK noise
+crashlytics-build.properties
+/[Aa]ssets/AssetStoreTools*
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+
+# Player logs / mock-tak-server stdout dumps
+*.log
+
+# Don't commit local secrets if you ever add them (TAK certs, API keys)
+*.pem
+*.p12
+*.pfx
+.env
+.env.local
+
+# Don't commit generated OSM/satellite tile cache if you add one
+TileCache/

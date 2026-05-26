@@ -1,0 +1,183 @@
+You are Claude 3 Opus, one of the most capable AI systems available. You are being tasked with building a complete, production-ready Unity project called **NATO C2 RTS Hybrid** — the next-generation Command & Control interface designed to replace legacy systems like SitaWare Headquarters and NCOP for NATO and Allied nations.
+
+---
+
+## PROJECT VISION
+
+**NATO C2 RTS Hybrid** is a revolutionary, gamified yet deadly serious Command & Control system that combines:
+
+- **Starcraft-level UX** (drag selection, radial command wheel, hotkeys, formation preview)
+- **Military-grade precision** (MIL-STD-2525E / APP-6E native symbology, APP-6E amplifiers, echelon, callsigns)
+- **Advanced pathfinding & avoidance** (HPA* hierarchical pathfinding + ORCA/RVO2 local avoidance)
+- **Multi-domain operations** (true 3-layer altitude system: Ground / Low Altitude / High Altitude)
+- **AI augmentation** (Mythos AI with real-time threat prediction, autonomous mode, and opportunity detection)
+- **Absolute control with zero cognitive overload**
+
+The goal: Create the interface that NATO commanders *actually want to use* — one that is faster, clearer, more customizable, and more powerful than anything currently fielded.
+
+---
+
+## TECHNICAL REQUIREMENTS
+
+### Core Architecture
+- **Unity 2022.3+** (target 2022.3.20f1 or later)
+- **Nebukam ORCA** (com.nebukam.orca) for high-performance local avoidance (Job System + Burst)
+- **HPA*** (Hierarchical Pathfinding A*) with Catmull-Rom smoothing for global paths
+- **Milsymbol** library integration (via WebGL bridge + C# wrapper) for MIL-STD-2525E / APP-6E symbols
+- **Multi-layer altitude system** (Ground / Low / High) with layer-aware neighbor queries
+
+### Key Systems to Implement
+
+1. **NATO_C2_Manager.cs** — Central orchestrator
+   - Manages all agents, dynamic obstacles, pathfinding, and AI
+   - Handles layer registration and cross-layer interaction rules
+   - Provides public API for selection, commands, and autonomous mode
+
+2. **Agent.cs** — Unit wrapper
+   - Supports drone, tank, UGV, helicopter, etc.
+   - Stores preferredVelocity, current velocity, radius, maxSpeed, unitType
+   - Visual feedback (color, symbol, health bar)
+
+3. **ORCA.cs** (Nebukam bridge + custom fallback)
+   - High-performance reciprocal collision avoidance
+   - Supports dynamic obstacles with stronger repulsion
+   - Layer-aware neighbor filtering
+
+4. **HPAStar.cs**
+   - Hierarchical Pathfinding A* with clustering
+   - Catmull-Rom path smoothing
+   - LOS optimization (line-of-sight shortcutting)
+
+5. **FormationController.cs**
+   - Wedge, Line, Circle formations with live preview
+   - Dynamic slot assignment based on unit count and type
+   - Maintains formation under ORCA influence
+
+6. **AIAutonomousMode.cs** (Mythos AI)
+   - Threat prediction with 8–12 second lookahead
+   - Toggleable autonomous decision making
+   - Opportunity detection and evasion vectors
+
+7. **MilsymbolBridge.cs**
+   - C# ↔ JavaScript bridge for WebGL
+   - Symbol caching
+   - Fallback placeholder system for Editor
+   - Supports APP-6E and MIL-STD-2525E SIDC codes
+
+8. **TacticalHUD.cs + CommandRadialMenu.cs**
+   - Drag-box selection
+   - Radial command wheel (MOVE, ATTACK, LOITER, SWARM, RTB, HOLD)
+   - Autonomous Mode toggle button
+   - Threat visualization overlay
+
+9. **DynamicObstacle.cs + DynamicObstacleSpawner.cs**
+   - Moving and static obstacles
+   - Runtime spawning for demo purposes
+
+---
+
+## UI/UX REQUIREMENTS (CRITICAL)
+
+The interface must feel like **Starcraft meets NATO precision**:
+
+- **Dark tactical theme** (NATO blue/gray #0A1628 background, cyan #00D4FF accents, green #00FF88 for friendly)
+- **Extremely low cognitive load** — every element must be instantly readable
+- **Drag-box selection** with multi-unit grouping and hotkey assignment (Ctrl+1–9)
+- **Radial Command Wheel** — right-click anywhere for instant orders (6 options with icons)
+- **Live formation preview** when issuing move commands
+- **Threat Heatmap** — pulsing red circles with countdown timers (8s, 12s, etc.)
+- **APP-6E symbols** on every unit with:
+  - Echelon amplifier (dots/bars)
+  - Quantity amplifier
+  - Callsign (Field T)
+  - Reinforced/Detached (Field F: + / - / ±)
+- **Multi-layer visualization** — clear visual separation between Ground / Low / High altitude
+- **Velocity vectors** and health/ammo bars on units
+- **Top HUD bar**: Mission name | Swarm count | Threat level | AI status
+- **Bottom command bar**: Formation type | Autonomous toggle | Layer visibility toggles
+
+**Reference Visual Style**: The 4 mockup images provided in the conversation (Main HUD, Radial Menu, Threat Heatmap, Multi-layer View) represent the exact target aesthetic.
+
+---
+
+## STANDARDS COMPLIANCE
+
+- **MIL-STD-2525E** and **APP-6E** native support via Milsymbol
+- Full support for SIDC codes, amplifiers (Field B Echelon, C Quantity, D Task Force, F Reinforced/Detached, T Callsign, M Higher Formation)
+- Color coding: Friendly = Cyan, Hostile = Red, Neutral = Yellow, Unknown = White
+- Cyber symbols (Appendix L) supported
+
+---
+
+## DELIVERABLES (What You Must Output)
+
+Create a complete, ready-to-import Unity package with the following structure:
+
+```
+NATO_C2_RTS_Hybrid/
+├── Runtime/
+│   ├── Core/
+│   │   ├── NATO_C2_Manager.cs
+│   │   ├── Agent.cs
+│   │   ├── ORCA.cs
+│   │   ├── HPAStar.cs
+│   │   └── FormationController.cs
+│   ├── Simulation/
+│   │   ├── DynamicObstacle.cs
+│   │   ├── DynamicObstacleSpawner.cs
+│   │   └── AIAutonomousMode.cs
+│   └── UI/
+│       ├── TacticalHUD.cs
+│       ├── CommandRadialMenu.cs
+│       └── MilsymbolBridge.cs
+├── Editor/
+│   └── NATO_C2_EditorTools.cs (optional)
+├── Samples/
+│   └── DemoScene.unity (with 12 drones + 7 tanks, dynamic obstacles, path, and UI)
+├── Documentation/
+│   ├── README.md (comprehensive)
+│   ├── API_Reference.md
+│   └── Milsymbol_Integration_Guide.md
+└── package.json
+```
+
+**package.json** must be valid for Unity Package Manager.
+
+---
+
+## IMPLEMENTATION PRIORITIES
+
+**Phase 1 (Core — Must Work First)**
+1. NATO_C2_Manager + Agent + ORCA (Nebukam)
+2. Basic drag selection + move command
+3. Formation system (Wedge + Line)
+4. HPA* pathfinding with smoothing
+5. Dynamic obstacle avoidance
+
+**Phase 2 (Polish & Standards)**
+6. Milsymbol integration (WebGL bridge + fallback)
+7. APP-6E symbol rendering on units
+8. Threat prediction visualization
+9. Radial Command Wheel
+10. Autonomous Mode toggle
+
+**Phase 3 (Advanced)**
+11. Multi-layer altitude system with layer-aware queries
+12. Full Mythos AI (prediction + opportunity detection)
+13. Live formation preview
+14. Demo Scene with cinematic camera and UI
+
+---
+
+## FINAL INSTRUCTIONS
+
+- Use modern C# (Unity 2022.3 compatible)
+- Prefer Job System + Burst where possible (especially ORCA)
+- Make everything highly configurable via Inspector
+- Include extensive XML documentation comments
+- Make the code clean, modular, and well-commented so a military software team can audit it
+- Prioritize **clarity and low cognitive load** in both code and UI
+
+**Output the complete project as if you are delivering it to NATO for immediate pilot deployment.**
+
+Begin.

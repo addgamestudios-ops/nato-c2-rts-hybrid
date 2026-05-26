@@ -1,0 +1,20 @@
+{
+  "name": "nato-c2-unity-mcp",
+  "version": "0.1.0",
+  "description": "MCP server that bridges Claude to the UnityMcpBridge running inside the Unity Editor for the NATO C2 RTS Hybrid package.",
+  "type": "commonjs",
+  "main": "server.js",
+  "bin": {
+    "nato-c2-unity-mcp": "server.js"
+  },
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "Proprietary"
+}

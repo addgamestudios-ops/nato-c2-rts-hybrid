@@ -1,0 +1,43 @@
+{
+  "name": "com.nato.c2-rts-hybrid",
+  "version": "0.1.0",
+  "displayName": "NATO C2 RTS Hybrid",
+  "description": "Next-generation Command & Control interface combining Starcraft-grade UX with MIL-STD-2525E / APP-6E precision. Includes Nebukam ORCA local avoidance, HPA* hierarchical pathfinding, multi-layer altitude system, and the Mythos autonomous AI.",
+  "unity": "2022.3",
+  "unityRelease": "20f1",
+  "author": {
+    "name": "NATO C2 RTS Hybrid Team",
+    "email": "c2@example.nato.int",
+    "url": "https://example.nato.int/c2-rts-hybrid"
+  },
+  "license": "Proprietary",
+  "keywords": [
+    "nato",
+    "c2",
+    "command-and-control",
+    "rts",
+    "milstd-2525",
+    "app-6e",
+    "orca",
+    "pathfinding",
+    "hpa-star",
+    "mythos",
+    "tactical"
+  ],
+  "dependencies": {
+    "com.unity.burst": "1.8.12",
+    "com.unity.collections": "2.1.4",
+    "com.unity.jobs": "0.70.0-preview.7",
+    "com.unity.mathematics": "1.3.1",
+    "com.unity.ugui": "2.0.0",
+    "com.unity.textmeshpro": "3.0.6",
+    "com.nebukam.orca": "0.4.0"
+  },
+  "samples": [
+    {
+      "displayName": "DemoScene (12 Drones + 7 Tanks)",
+      "description": "Cinematic demonstration scene showing drag-box selection, radial command wheel, formations, threat heatmap, and the multi-layer altitude system.",
+      "path": "Samples~/DemoScene"
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "name": "NATO.C2.Runtime",
+  "rootNamespace": "NATO.C2",
+  "references": [
+    "Unity.Burst",
+    "Unity.Collections",
+    "Unity.Jobs",
+    "Unity.Mathematics",
+    "UnityEngine.UI",
+    "Unity.TextMeshPro",
+    "Nebukam.ORCA",
+    "Nebukam.Common",
+    "Nebukam.JobAssist"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": true,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}

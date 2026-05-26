@@ -1,0 +1,21 @@
+{
+  "name": "NATO.C2.Editor",
+  "rootNamespace": "NATO.C2.EditorTools",
+  "references": [
+    "NATO.C2.Runtime",
+    "Unity.Mathematics",
+    "UnityEngine.UI",
+    "Unity.TextMeshPro"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}
