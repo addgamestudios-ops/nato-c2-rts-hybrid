@@ -28,7 +28,7 @@ concurrency:
 
 jobs:
   jam-storm:
-    name: Nightly EditMode + jam-storm
+    name: Nightly PlayMode + jam-storm
     runs-on: ubuntu-latest
     env:
       NATO_TEST_ARTIFACTS_DIR: ${{ github.workspace }}/soak-artifacts
@@ -50,9 +50,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: Library
-          key: Library-EditMode-${{ hashFiles('Assets/**', 'Packages/**', 'ProjectSettings/**') }}
+          key: Library-PlayMode-${{ hashFiles('Assets/**', 'Packages/**', 'ProjectSettings/**') }}
           restore-keys: |
-            Library-EditMode-
+            Library-PlayMode-
             Library-
 
       - name: Run Unity tests (incl. jam-storm)
@@ -65,7 +65,7 @@ jobs:
           NATO_TEST_ARTIFACTS_DIR: ${{ env.NATO_TEST_ARTIFACTS_DIR }}
           NATO_RUN_JAM_STORM: "1"
         with:
-          testMode: EditMode
+          testMode: PlayMode
           checkName: Nightly Jam-Storm Test Results
           projectPath: .
           artifactsPath: artifacts

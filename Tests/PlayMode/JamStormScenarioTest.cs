@@ -1,16 +1,22 @@
 // =====================================================================
-//  NATO C2 RTS Hybrid — JamStormScenarioTest.cs
+//  NATO C2 RTS Hybrid — JamStormScenarioTest.cs  (PlayMode)
 //  ---------------------------------------------------------------------
-//  Nightly soak: loads jam-storm-ci.json (timeScale=10), runs the
-//  scenario headlessly, asserts envelope conservation under sustained
-//  high drops. The CI cron triggers EditMode tests with the
-//  NATO_RUN_JAM_STORM=1 env set; without that variable the test is
-//  skipped via [Explicit] semantics (we use NUnit's Assert.Ignore).
+//  Nightly accelerated soak: loads jam-storm-ci.json (timeScale=10),
+//  runs the scenario headlessly, asserts envelope conservation under
+//  sustained high drops. Gated by NATO_RUN_JAM_STORM=1 so it only runs
+//  in the nightly cron (or via manual workflow_dispatch).
 //
-//  Why a separate test: jam-storm is heavier than the smoke scenario
-//  and tends to take 4-5s of wall-clock plus a few seconds of settle.
-//  Running it on EVERY push wastes CI minutes. Running it nightly
-//  catches drift that smoke alone misses.
+//  Why PlayMode: the simulator's slot scheduler and the ARQ retry
+//  windows both rely on MonoBehaviour.Update firing at real frame
+//  cadence. EditMode coroutines don't drive that. Same reason
+//  FederationSoakTests moved here.
+//
+//  Why inline DTOs: the production scenario file is loaded by
+//  NATO.C2.EditorTools.FederationChaosMode which is Editor-only.
+//  Rather than make Tests.PlayMode depend on Editor assemblies (which
+//  would break PlayMode standalone runs), we declare a parallel set of
+//  serializable DTOs here. JsonUtility matches by field name, not by
+//  class identity, so the same JSON file loads cleanly into either.
 // =====================================================================
 
 using System.Collections;
@@ -25,6 +31,63 @@ namespace NATO.C2.Tests
 {
     public class JamStormScenarioTest
     {
+        // Mirror of NATO.C2.EditorTools.FederationChaosMode.StepKind /
+        // .Step / .ExpectedOutcome / .ScenarioFile. Field names MUST
+        // match the editor-side DTO so JsonUtility deserializes the
+        // same scenario JSON identically.
+        public enum StepKind { SetDropRate, PeerDrop, PeerRestore, End }
+
+        [System.Serializable]
+        public class Step
+        {
+            public float    atSec;
+            public StepKind kind;
+            public float    valueFloat;
+            public string   valueText;
+        }
+
+        [System.Serializable]
+        public class ExpectedOutcome
+        {
+            public int   minTransmitted;
+            public float maxRetryRate;
+            public float maxFailRate;
+            public int   minAcked;
+        }
+
+        [System.Serializable]
+        public class ScenarioFile
+        {
+            public string           name;
+            public string           description;
+            public float            timeScale;
+            public Step[]           steps;
+            public ExpectedOutcome  expectedOutcome;
+        }
+
+        // Pure-function copy of FederationChaosMode.CheckExpectedOutcome.
+        // Same semantics; lives here so we don't need an Editor reference.
+        private static string CheckExpectedOutcome(ExpectedOutcome eo, int sent, int acked, int failed, int retried)
+        {
+            if (eo == null) return null;
+            var failures = new System.Collections.Generic.List<string>();
+            if (eo.minTransmitted > 0 && sent < eo.minTransmitted)
+                failures.Add($"sent={sent} < minTransmitted={eo.minTransmitted}");
+            if (eo.minAcked > 0 && acked < eo.minAcked)
+                failures.Add($"acked={acked} < minAcked={eo.minAcked}");
+            if (eo.maxRetryRate > 0f && sent > 0)
+            {
+                float rr = retried / (float)sent;
+                if (rr > eo.maxRetryRate) failures.Add($"retryRate={rr:F2} > maxRetryRate={eo.maxRetryRate:F2}");
+            }
+            if (eo.maxFailRate > 0f && sent > 0)
+            {
+                float fr = failed / (float)sent;
+                if (fr > eo.maxFailRate) failures.Add($"failRate={fr:F2} > maxFailRate={eo.maxFailRate:F2}");
+            }
+            return failures.Count == 0 ? null : string.Join("; ", failures);
+        }
+
         [UnityTest]
         public IEnumerator JamStormCi_RunsAndConserves()
         {
@@ -39,8 +102,7 @@ namespace NATO.C2.Tests
             if (!File.Exists(path))
                 Assert.Ignore($"jam-storm-ci.json not at {path} (sample/package context?)");
 
-            var dto = JsonUtility.FromJson<NATO.C2.EditorTools.FederationChaosMode.ScenarioFile>(
-                File.ReadAllText(path));
+            var dto = JsonUtility.FromJson<ScenarioFile>(File.ReadAllText(path));
             Assert.IsNotNull(dto, "JsonUtility returned null");
             Assert.GreaterOrEqual(dto.timeScale, 1f, "jam-storm-ci should declare timeScale");
 
@@ -85,7 +147,7 @@ namespace NATO.C2.Tests
                 while (nextStepIdx < dto.steps.Length && dto.steps[nextStepIdx].atSec <= t)
                 {
                     var s = dto.steps[nextStepIdx];
-                    if (s.kind == NATO.C2.EditorTools.FederationChaosMode.StepKind.SetDropRate)
+                    if (s.kind == StepKind.SetDropRate)
                         currentDropPct = Mathf.Clamp(s.valueFloat, 0f, 100f);
                     nextStepIdx++;
                 }
@@ -106,10 +168,10 @@ namespace NATO.C2.Tests
             int accounted = arq.TotalAcked + arq.TotalFailed + arq.OutstandingCount;
             Assert.AreEqual(arq.TotalTransmitted, accounted, "envelope conservation");
 
-            var outcome = NATO.C2.EditorTools.FederationChaosMode.CheckExpectedOutcome(
+            string outcomeDetail = CheckExpectedOutcome(
                 dto.expectedOutcome,
                 arq.TotalTransmitted, arq.TotalAcked, arq.TotalFailed, arq.TotalRetried);
-            Assert.IsTrue(outcome.passed, $"expectedOutcome failed: {outcome.detail}");
+            Assert.IsNull(outcomeDetail, $"expectedOutcome failed: {outcomeDetail}");
 
             foreach (var a in manager.Agents) if (a != null) Object.DestroyImmediate(a.gameObject);
             Object.DestroyImmediate(simGo);
