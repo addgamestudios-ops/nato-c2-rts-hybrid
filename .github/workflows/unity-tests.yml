@@ -1,11 +1,22 @@
 # =====================================================================
 #  NATO C2 RTS Hybrid — Unity test CI
 #  ---------------------------------------------------------------------
-#  Runs every EditMode test on push to main and on every PR. The
-#  EditMode suite includes the federation soak test
-#  (FederationSoakTests.Soak_FullStack_ConservationAndCaptureValidate)
-#  which exercises the full Link 16 + STANAG 5066 stack end-to-end and
-#  is the production-readiness gate.
+#  Runs both EditMode and PlayMode test suites on every push to main
+#  and every PR. The split is intentional:
+#
+#      EditMode  — fast, deterministic checks that don't need
+#                  MonoBehaviour.Update to tick. Lives in
+#                  Tests/Editor/ (asmdef: NATO.C2.Tests.Editor).
+#
+#      PlayMode  — full-lifecycle integration tests. Includes the
+#                  federation soak test
+#                  (FederationSoakTests.Soak_FullStack_ConservationAndCaptureValidate)
+#                  which is the production-readiness gate, plus
+#                  ORCA/movement and Link 16 envelope-density tests
+#                  that depend on Update firing at real frame cadence
+#                  and Burst jobs completing under the JobSystem.
+#                  Lives in Tests/PlayMode/ (asmdef:
+#                  NATO.C2.Tests.PlayMode).
 #
 #  SECRETS REQUIRED (set in repo → Settings → Secrets and variables → Actions):
 #      UNITY_LICENSE          Personal / Plus / Pro licence ULF content.
@@ -17,6 +28,7 @@
 #      • Test results (JUnit XML) — for the GitHub Checks UI
 #      • Soak artifacts (Captures/*.dpdu, Logs/*.csv) — for forensic
 #        debug when the soak test exposes a federation issue.
+#        Only the PlayMode run produces these.
 # =====================================================================
 
 name: Unity Tests
@@ -54,7 +66,7 @@ jobs:
       matrix:
         testMode:
           - EditMode
-          # - PlayMode      # Uncomment once we ship play-mode tests too.
+          - PlayMode
 
     env:
       # Soak test honours this — captures + logs land here so the
@@ -116,22 +128,24 @@ jobs:
 
       # Verify the federation soak test actually ran. Guards against
       # someone accidentally [Ignore]-ing it or renaming the fixture.
-      - name: Verify soak test ran
-        if: always()
+      # PlayMode-only because the soak test lives in Tests/PlayMode/.
+      - name: Verify soak test ran (PlayMode only)
+        if: always() && matrix.testMode == 'PlayMode'
         shell: bash
         run: |
           set -eo pipefail
           if ! grep -lR "FederationSoakTests" artifacts/ >/dev/null 2>&1; then
-            echo "::error::FederationSoakTests did not appear in any JUnit report. Did someone disable it?"
+            echo "::error::FederationSoakTests did not appear in any PlayMode JUnit report. Did someone disable it or change its name?"
             exit 1
           fi
-          echo "FederationSoakTests confirmed present in JUnit report."
+          echo "FederationSoakTests confirmed present in PlayMode JUnit report."
 
       # Convert the soak's synthetic capture to PCAP and run the chain
       # verifier. Both outputs land back in NATO_TEST_ARTIFACTS_DIR so
-      # the upload-artifact step grabs them automatically.
-      - name: Convert + verify soak capture
-        if: always()
+      # the upload-artifact step grabs them automatically. PlayMode-only
+      # because only the PlayMode soak run produces the capture.
+      - name: Convert + verify soak capture (PlayMode only)
+        if: always() && matrix.testMode == 'PlayMode'
         shell: bash
         run: |
           set -uo pipefail
