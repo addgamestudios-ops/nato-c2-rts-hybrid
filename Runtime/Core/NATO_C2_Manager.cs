@@ -95,10 +95,6 @@ namespace NATO.C2
             if (pathfinder  == null) pathfinder  = GetComponentInChildren<HPAStar>(true)     ?? gameObject.AddComponent<HPAStar>();
             if (formations  == null) formations  = GetComponentInChildren<FormationController>(true) ?? gameObject.AddComponent<FormationController>();
             if (mythos      == null) mythos      = GetComponentInChildren<AIAutonomousMode>(true)    ?? gameObject.AddComponent<AIAutonomousMode>();
-            // Diagnostic — fires once per Awake. Lets EditMode tests prove
-            // that subsystem fields are non-null after Awake. Remove once
-            // the AgentMovementTests/FederationSoakTests NRE is resolved.
-            Debug.Log($"[NATO_C2_Manager] Awake done on '{name}' — orca={(orca!=null)} pathfinder={(pathfinder!=null)} formations={(formations!=null)} mythos={(mythos!=null)}");
         }
 
         private void OnDestroy()
@@ -132,11 +128,7 @@ namespace NATO.C2
             {
                 var a = _agents[i];
                 if (a == null) continue;
-                bool noCV = a.currentVelocity.sqrMagnitude < 1e-6f;
-                bool yesPV = a.preferredVelocity.sqrMagnitude > 1e-6f;
-                if (i == 0 && _agents.Count > 0)
-                    Debug.Log($"[TickForTest] agents={_agents.Count} pathCount={a.path.Count} pathCursor={a.pathCursor} hasPath={a.HasPath} pref={a.preferredVelocity} curr={a.currentVelocity} fallback={(noCV && yesPV)}");
-                if (noCV && yesPV)
+                if (a.currentVelocity.sqrMagnitude < 1e-6f && a.preferredVelocity.sqrMagnitude > 1e-6f)
                 {
                     a.currentVelocity = a.preferredVelocity;
                     a.transform.position += a.currentVelocity * dt;
