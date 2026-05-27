@@ -291,17 +291,28 @@ namespace NATO.C2.UI
             rt.anchoredPosition = new Vector2(0f, 0f);
             go.GetComponent<Image>().color = new Color(0f, 0f, 0f, 0.5f);
 
-            // Green badge "Live"
-            var live = new GameObject("Live",
-                typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Text));
-            live.transform.SetParent(go.transform, false);
-            var lRt = live.GetComponent<RectTransform>();
+            // Green badge "Live". A GameObject can only host one Graphic
+            // (Image or Text), so the green background and the "Live" label
+            // live on separate children — earlier versions of this method
+            // tried to stack Image + Text on the same GO, which Unity
+            // refused and produced an NRE at scene warmup.
+            var liveBg = new GameObject("LiveBg",
+                typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            liveBg.transform.SetParent(go.transform, false);
+            var lRt = liveBg.GetComponent<RectTransform>();
             lRt.anchorMin = new Vector2(0f, 0f); lRt.anchorMax = new Vector2(0f, 1f);
             lRt.pivot = new Vector2(0f, 0.5f);
             lRt.sizeDelta = new Vector2(44f, 0f);
             lRt.anchoredPosition = new Vector2(2f, 0f);
-            live.GetComponent<Image>().color = Green;
-            var liveTxt = live.GetComponent<Text>();
+            liveBg.GetComponent<Image>().color = Green;
+
+            var liveLbl = new GameObject("LiveLbl",
+                typeof(RectTransform), typeof(CanvasRenderer), typeof(Text));
+            liveLbl.transform.SetParent(liveBg.transform, false);
+            var llRt = liveLbl.GetComponent<RectTransform>();
+            llRt.anchorMin = Vector2.zero; llRt.anchorMax = Vector2.one;
+            llRt.offsetMin = Vector2.zero; llRt.offsetMax = Vector2.zero;
+            var liveTxt = liveLbl.GetComponent<Text>();
             liveTxt.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             liveTxt.text = "Live"; liveTxt.fontSize = 13; liveTxt.color = new Color(0.05f, 0.18f, 0.10f);
             liveTxt.fontStyle = FontStyle.Bold; liveTxt.alignment = TextAnchor.MiddleCenter;
@@ -348,9 +359,11 @@ namespace NATO.C2.UI
             _coordText.alignment = TextAnchor.MiddleLeft;
             _coordText.raycastTarget = false;
 
-            // Go To button (cyan).
+            // Go To button — Image (background + raycast target) on parent,
+            // Text label on a child. Same Graphic-on-GO constraint as the
+            // LivePill: Image and Text can't share a GameObject.
             var btn = new GameObject("GoTo",
-                typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button), typeof(Text));
+                typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button));
             btn.transform.SetParent(go.transform, false);
             var bRt = btn.GetComponent<RectTransform>();
             bRt.anchorMin = new Vector2(1f, 0f); bRt.anchorMax = new Vector2(1f, 1f);
@@ -358,7 +371,14 @@ namespace NATO.C2.UI
             bRt.sizeDelta = new Vector2(70f, 0f);
             bRt.anchoredPosition = new Vector2(-3f, 0f);
             btn.GetComponent<Image>().color = Cyan;
-            var bT = btn.GetComponent<Text>();
+
+            var btnLbl = new GameObject("GoToLbl",
+                typeof(RectTransform), typeof(CanvasRenderer), typeof(Text));
+            btnLbl.transform.SetParent(btn.transform, false);
+            var blRt = btnLbl.GetComponent<RectTransform>();
+            blRt.anchorMin = Vector2.zero; blRt.anchorMax = Vector2.one;
+            blRt.offsetMin = Vector2.zero; blRt.offsetMax = Vector2.zero;
+            var bT = btnLbl.GetComponent<Text>();
             bT.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             bT.text = "Go To"; bT.fontSize = 13; bT.fontStyle = FontStyle.Bold;
             bT.color = new Color(0.04f, 0.08f, 0.15f);

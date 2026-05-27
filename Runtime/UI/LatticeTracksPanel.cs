@@ -210,16 +210,26 @@ namespace NATO.C2.UI
             ft.color = new Color(0.85f, 0.92f, 1.0f);
             ft.alignment = TextAnchor.MiddleLeft;
 
-            var chip = new GameObject("FilterChip",
-                typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Text));
-            chip.transform.SetParent(header.transform, false);
-            var cRt = chip.GetComponent<RectTransform>();
+            // Filter chip = colored background + Text label on a child GO.
+            // (Image + Text on the same GameObject is rejected by Unity —
+            // they both inherit Graphic and a GameObject can host only one.)
+            var chipBg = new GameObject("FilterChipBg",
+                typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            chipBg.transform.SetParent(header.transform, false);
+            var cRt = chipBg.GetComponent<RectTransform>();
             cRt.anchorMin = new Vector2(0f, 0.5f); cRt.anchorMax = new Vector2(0f, 0.5f);
             cRt.pivot = new Vector2(0f, 0.5f);
             cRt.sizeDelta = new Vector2(180f, 26f);
             cRt.anchoredPosition = new Vector2(110f, 0f);
-            chip.GetComponent<Image>().color = new Color(0.07f, 0.12f, 0.235f);
-            _filterChip = chip.GetComponent<Text>();
+            chipBg.GetComponent<Image>().color = new Color(0.07f, 0.12f, 0.235f);
+
+            var chipLbl = new GameObject("FilterChipLbl",
+                typeof(RectTransform), typeof(CanvasRenderer), typeof(Text));
+            chipLbl.transform.SetParent(chipBg.transform, false);
+            var clRt = chipLbl.GetComponent<RectTransform>();
+            clRt.anchorMin = Vector2.zero; clRt.anchorMax = Vector2.one;
+            clRt.offsetMin = Vector2.zero; clRt.offsetMax = Vector2.zero;
+            _filterChip = chipLbl.GetComponent<Text>();
             _filterChip.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             _filterChip.text = "Last 24 Hours · 0 Assets";
             _filterChip.fontSize = 12;
